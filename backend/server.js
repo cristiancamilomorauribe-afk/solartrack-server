@@ -61,6 +61,15 @@ app.post('/batch-locations', (req, res, next) => {
   locationRoutes(req, res, next);
 });
 
+// SOS — alerta de emergencia
+app.post('/sos', (req, res) => {
+  const data = req.body;
+  console.log(`[SOS] EMERGENCIA de ${data.workerName} en ${data.lat},${data.lng}`);
+  io.emit('location:update', { ...data, isSOS: true });
+  io.to(`park:${data.parkId}`).emit('location:update', { ...data, isSOS: true });
+  res.json({ ok: true, received: true });
+});
+
 // Trabajadores
 app.use('/workers', workerRoutes);
 
