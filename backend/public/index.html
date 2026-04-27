@@ -277,11 +277,18 @@ function initSocket(){
   });
 
   socket.on('workers:status-change',()=>loadWorkers());
+  socket.on('worker:batch-sync',(data)=>{
+    if(data.lastLat&&data.lastLng){
+      workers[data.workerId]={...workers[data.workerId],...data,lat:data.lastLat,lng:data.lastLng,online:true,lastSeen:new Date().toISOString()};
+      updateMarker(workers[data.workerId]);
+      renderWorkers();
+    }
+  });
 }
 
 async function loadWorkers(){
   try{
-    const r=await fetch(`${BACKEND}/workers`);
+    const r=await fetch(`${BACKEND}/workers?park=${currentPark}`);
     if(!r.ok) return;
     const ws=await r.json();
     ws.forEach(w=>{ workers[w.workerId||w.id]=w; updateMarker(w); });
@@ -374,6 +381,8 @@ initMap();
 initSocket();
 renderWorkers();
 renderSOSList();
+// Polling cada 15s para asegurar datos actualizados
+setInterval(loadWorkers, 15000);
 </script>
 </body>
 </html>

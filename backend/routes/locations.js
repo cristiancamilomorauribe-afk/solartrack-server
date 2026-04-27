@@ -48,6 +48,19 @@ router.post('/batch', async (req, res) => {
     const io = req.app.get('io');
     if (io && locations.length > 0) {
       const last = locations[locations.length - 1];
+      // Emitir location:update con la última posición conocida
+      io.to(`park:${parkId}`).emit('location:update', {
+        workerId,
+        workerName: last.workerName || workerId,
+        parkId,
+        zoneId:   last.zoneId || '',
+        zoneName: last.zoneName || '',
+        lat:      last.lat,
+        lng:      last.lng,
+        accuracy: last.accuracy || 0,
+        ts:       last.ts || new Date().toISOString(),
+        synced:   true,
+      });
       io.to(`park:${parkId}`).emit('worker:batch-sync', { workerId, parkId, count, lastLat: last.lat, lastLng: last.lng, lastTs: last.ts });
     }
 
