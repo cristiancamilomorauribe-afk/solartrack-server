@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+  <title>SolarTrack — Maestro</title>
+  <link rel="manifest" href="/manifest-master.json"/>
+  <meta name="theme-color" content="#f59e0b"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-title" content="SolarTrack"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+    :root{
+      --bg:#0f172a;--card:#1e293b;--border:#334155;
+      --text:#e2e8f0;--muted:#94a3b8;--solar:#f59e0b;
+      --green:#22c55e;--red:#ef4444;
+    }
+    body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;height:100dvh;overflow:hidden;display:flex;flex-direction:column}
+
+    /* ── TOP BAR ── */
+    #topbar{background:var(--card);border-bottom:1px solid var(--border);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:100}
+    #topbar .logo{font-size:20px}
+    #topbar .title{font-weight:700;color:var(--solar);font-size:16px}
+    #topbar .subtitle{font-size:11px;color:var(--muted)}
+    #park-select{margin-left:auto;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;max-width:180px}
+    #conn-badge{font-size:11px;font-weight:600;white-space:nowrap}
+
+    /* ── STATS BAR ── */
+    #statsbar{background:var(--card);border-bottom:1px solid var(--border);padding:8px 14px;display:flex;gap:16px;flex-shrink:0}
+    .stat{display:flex;flex-direction:column;align-items:center}
+    .stat-val{font-size:18px;font-weight:700}
+    .stat-lbl{font-size:10px;color:var(--muted)}
+
+    /* ── MAIN LAYOUT ── */
+    #main{flex:1;display:flex;overflow:hidden;position:relative}
+
+    /* ── MAP ── */
+    #map{flex:1;z-index:1}
+    .leaflet-container{background:#1a2744}
+
+    /* ── SIDEBAR (desktop) ── */
+    #sidebar{width:300px;background:var(--card);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;transition:transform .3s}
+    @media(max-width:768px){
+      #sidebar{position:absolute;bottom:0;left:0;right:0;width:100%;height:55%;border-left:none;border-top:1px solid var(--border);border-radius:16px 16px 0 0;transform:translateY(calc(100% - 48px));z-index:10}
+      #sidebar.open{transform:translateY(0)}
+    }
+
+    /* ── SIDEBAR HANDLE ── */
+    #sidebar-handle{padding:10px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;flex-shrink:0;border-bottom:1px solid var(--border)}
+    #handle-bar{width:36px;height:4px;background:var(--border);border-radius:99px}
+    #handle-title{font-size:12px;color:var(--muted);font-weight:600}
+
+    /* ── TABS ── */
+    #tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
+    .tab{flex:1;padding:10px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;background:transparent;border:none;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s}
+    .tab.active{color:var(--solar);border-color:var(--solar)}
+
+    /* ── WORKER LIST ── */
+    #worker-list{overflow-y:auto;flex:1}
+    .worker-card{padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;align-items:center;gap:10px;transition:background .15s}
+    .worker-card:hover,.worker-card.selected{background:#253347}
+    .worker-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+    .dot-online{background:var(--green);box-shadow:0 0 6px var(--green)}
+    .dot-offline{background:var(--red)}
+    .worker-info{flex:1;min-width:0}
+    .worker-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .worker-zone{font-size:11px;color:var(--muted)}
+    .worker-time{font-size:10px;color:var(--muted);text-align:right;flex-shrink:0}
+
+    /* ── SOS ALERT ── */
+    #sos-alert{display:none;position:fixed;top:70px;left:50%;transform:translateX(-50%);background:#7f1d1d;border:2px solid var(--red);border-radius:12px;padding:12px 20px;z-index:999;text-align:center;animation:pulse 1s infinite}
+    #sos-alert.show{display:block}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}
+    #sos-alert p{color:#fca5a5;font-weight:700;font-size:14px}
+    #sos-close{margin-top:6px;background:var(--red);border:none;color:#fff;padding:4px 12px;border-radius:6px;cursor:pointer;font-weight:600}
+
+    /* ── FAB (centrar mapa) ── */
+    #fab-center{position:absolute;bottom:60%;right:12px;z-index:5;width:44px;height:44px;border-radius:50%;background:var(--card);border:1px solid var(--border);cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+    @media(max-width:768px){#fab-center{bottom:58%}}
+
+    /* ── ACCURACY BADGE ── */
+    .acc-badge{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px;font-weight:600;white-space:nowrap}
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar{width:4px}
+    ::-webkit-scrollbar-track{background:var(--card)}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+    /* ── INSTALL BANNER ── */
+    #install-banner{display:none;background:#1d4ed8;padding:10px 14px;align-items:center;gap:10px;flex-shrink:0}
+    #install-banner.show{display:flex}
+    #install-banner p{font-size:12px;flex:1}
+    #install-btn{background:var(--solar);color:#000;border:none;padding:6px 14px;border-radius:8px;font-weight:700;cursor:pointer;font-size:12px;white-space:nowrap}
+    #install-close{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:18px}
+  </style>
+</head>
+<body>
+
+<!-- SOS Alert -->
+<div id="sos-alert">
+  <p id="sos-text">🆘 EMERGENCIA</p>
+  <button id="sos-close" onclick="closeSOS()">Cerrar</button>
+</div>
+
+<!-- Install Banner -->
+<div id="install-banner">
+  <p>📲 Instala SolarTrack Maestro como app</p>
+  <button id="install-btn" onclick="installApp()">Instalar</button>
+  <button id="install-close" onclick="document.getElementById('install-banner').classList.remove('show')">×</button>
+</div>
+
+<!-- Top Bar -->
+<div id="topbar">
+  <span class="logo">☀️</span>
+  <div>
+    <div class="title">SolarTrack</div>
+    <div class="subtitle">MAESTRO</div>
+  </div>
+  <select id="park-select" onchange="switchPark(this.value)">
+    <option value="P1">Parque 1 — Barranquilla Norte</option>
+    <option value="P2">Parque 2 — Barranquilla Sur</option>
+    <option value="P3">Parque 3 — Soledad</option>
+    <option value="P4">Parque 4 — Malambo</option>
+    <option value="P5">Parque 5 — Sabanalarga</option>
+    <option value="P6">Parque 6 — Cartagena</option>
+    <option value="P7">Parque 7 — Santa Marta</option>
+  </select>
+  <span id="conn-badge" style="color:var(--red)">✕ Sin conexión</span>
+</div>
+
+<!-- Stats Bar -->
+<div id="statsbar">
+  <div class="stat"><span class="stat-val" id="stat-online" style="color:var(--green)">0</span><span class="stat-lbl">En línea</span></div>
+  <div class="stat"><span class="stat-val" id="stat-offline" style="color:var(--red)">0</span><span class="stat-lbl">Desconect.</span></div>
+  <div class="stat"><span class="stat-val" id="stat-total" style="color:var(--solar)">0</span><span class="stat-lbl">Total hoy</span></div>
+  <div class="stat" style="margin-left:auto"><span class="stat-val" id="stat-time" style="color:var(--muted);font-size:13px">--:--</span><span class="stat-lbl">Última update</span></div>
+</div>
+
+<!-- Main -->
+<div id="main">
+  <div id="map"></div>
+
+  <button id="fab-center" onclick="centerMap()" title="Centrar mapa">📍</button>
+
+  <!-- Sidebar / Bottom Sheet -->
+  <div id="sidebar">
+    <div id="sidebar-handle" onclick="toggleSidebar()">
+      <div id="handle-bar"></div>
+      <span id="handle-title">▲ TRABAJADORES</span>
+    </div>
+    <div id="tabs">
+      <button class="tab active" onclick="switchTab('workers',this)">👷 Trabajadores</button>
+      <button class="tab" onclick="switchTab('sos',this)">🆘 Alertas SOS</button>
+    </div>
+    <div id="worker-list"></div>
+    <div id="sos-list" style="display:none;overflow-y:auto;flex:1;padding:12px"></div>
+  </div>
+</div>
+
+<script>
+const BACKEND = 'https://solartrack-server-production.up.railway.app';
+const PARK_CENTERS = {
+  P1:[11.012,-74.837], P2:[10.980,-74.860], P3:[10.920,-74.760],
+  P4:[10.850,-74.780], P5:[10.630,-74.920], P6:[10.391,-75.479], P7:[11.240,-74.199]
+};
+
+let map, socket, currentPark='P1';
+let workers={}, markers={}, sosList=[], sidebarOpen=false;
+let deferredInstall=null;
+
+// ── MAP INIT ──
+function initMap(){
+  map = L.map('map',{center:PARK_CENTERS[currentPark],zoom:15,zoomControl:false});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© OpenStreetMap',maxZoom:19
+  }).addTo(map);
+  L.control.zoom({position:'bottomright'}).addTo(map);
+}
+
+// ── MARKERS ──
+function workerIcon(w){
+  const color = w.online ? '#22c55e' : '#ef4444';
+  const initials = (w.workerName||'?').split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase();
+  return L.divIcon({
+    className:'',
+    html:`<div style="background:${color};width:36px;height:36px;border-radius:50%;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:#000;box-shadow:0 2px 6px rgba(0,0,0,.4)">${initials}</div>`,
+    iconSize:[36,36],iconAnchor:[18,18]
+  });
+}
+
+function updateMarker(w){
+  if(!w.lat||!w.lng) return;
+  const pos=[w.lat,w.lng];
+  if(markers[w.workerId]){
+    markers[w.workerId].setLatLng(pos).setIcon(workerIcon(w));
+  } else {
+    markers[w.workerId]=L.marker(pos,{icon:workerIcon(w)})
+      .addTo(map)
+      .bindPopup(`<b>${w.workerName}</b><br>${w.zoneName||''}<br>Precisión: ${Math.round(w.accuracy||0)}m`);
+  }
+  markers[w.workerId].getPopup()?.setContent(
+    `<b>${w.workerName}</b><br>${w.zoneName||''}<br>📍 ${w.lat?.toFixed(5)}, ${w.lng?.toFixed(5)}<br>Precisión: ${Math.round(w.accuracy||0)}m`
+  );
+}
+
+function removeMarker(id){ if(markers[id]){map.removeLayer(markers[id]);delete markers[id];} }
+
+// ── WORKER LIST ──
+function renderWorkers(){
+  const list=document.getElementById('worker-list');
+  const all=Object.values(workers).sort((a,b)=>(b.online?1:0)-(a.online?1:0));
+  if(!all.length){
+    list.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Sin trabajadores conectados.<br>Esperando señal GPS...</div>';
+    return;
+  }
+  list.innerHTML=all.map(w=>`
+    <div class="worker-card" onclick="focusWorker('${w.workerId}')">
+      <div class="worker-dot ${w.online?'dot-online':'dot-offline'}"></div>
+      <div class="worker-info">
+        <div class="worker-name">${w.workerName||'Trabajador'}</div>
+        <div class="worker-zone">${w.zoneName||w.parkId||''}</div>
+      </div>
+      <div class="worker-time">${w.online?'● Ahora':formatTime(w.lastSeen)}</div>
+    </div>`).join('');
+
+  document.getElementById('stat-online').textContent=all.filter(w=>w.online).length;
+  document.getElementById('stat-offline').textContent=all.filter(w=>!w.online).length;
+  document.getElementById('stat-total').textContent=all.length;
+}
+
+function focusWorker(id){
+  const w=workers[id];
+  if(w?.lat&&w?.lng){ map.setView([w.lat,w.lng],17,{animate:true}); markers[id]?.openPopup(); }
+  if(window.innerWidth<=768) toggleSidebar(false);
+}
+
+function formatTime(ts){
+  if(!ts) return '--';
+  const d=new Date(ts), now=new Date();
+  const diff=Math.floor((now-d)/60000);
+  if(diff<1) return 'Ahora';
+  if(diff<60) return `hace ${diff}m`;
+  return `hace ${Math.floor(diff/60)}h`;
+}
+
+// ── SOCKET.IO ──
+function initSocket(){
+  socket=io(BACKEND,{transports:['websocket','polling'],reconnectionAttempts:10,reconnectionDelay:2000});
+
+  socket.on('connect',()=>{
+    document.getElementById('conn-badge').textContent='● Conectado';
+    document.getElementById('conn-badge').style.color='var(--green)';
+    socket.emit('join:park',currentPark);
+    loadWorkers();
+  });
+
+  socket.on('disconnect',()=>{
+    document.getElementById('conn-badge').textContent='✕ Sin conexión';
+    document.getElementById('conn-badge').style.color='var(--red)';
+  });
+
+  socket.on('park:snapshot',({workers:ws})=>{
+    ws.forEach(w=>{ workers[w.workerId||w.id]=w; updateMarker(w); });
+    renderWorkers();
+  });
+
+  socket.on('location:update',(data)=>{
+    workers[data.workerId]={...workers[data.workerId],...data,online:true,lastSeen:new Date().toISOString()};
+    updateMarker(workers[data.workerId]);
+    renderWorkers();
+    document.getElementById('stat-time').textContent=new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
+    if(data.isSOS) showSOS(data);
+  });
+
+  socket.on('workers:status-change',()=>loadWorkers());
+}
+
+async function loadWorkers(){
+  try{
+    const r=await fetch(`${BACKEND}/workers`);
+    if(!r.ok) return;
+    const ws=await r.json();
+    ws.forEach(w=>{ workers[w.workerId||w.id]=w; updateMarker(w); });
+    renderWorkers();
+  }catch(e){}
+}
+
+// ── SOS ──
+function showSOS(data){
+  const alert=document.getElementById('sos-alert');
+  document.getElementById('sos-text').textContent=`🆘 EMERGENCIA — ${data.workerName} necesita ayuda!`;
+  alert.classList.add('show');
+  sosList.unshift({...data,ts:new Date().toISOString()});
+  renderSOSList();
+  try{navigator.vibrate&&navigator.vibrate([400,200,400,200,400])}catch(e){}
+}
+function closeSOS(){ document.getElementById('sos-alert').classList.remove('show'); }
+function renderSOSList(){
+  const el=document.getElementById('sos-list');
+  if(!sosList.length){el.innerHTML='<p style="color:var(--muted);font-size:13px;text-align:center;margin-top:20px">Sin alertas de emergencia</p>';return;}
+  el.innerHTML=sosList.map(s=>`
+    <div style="background:#450a0a;border:1px solid var(--red);border-radius:10px;padding:12px;margin-bottom:10px">
+      <p style="color:#fca5a5;font-weight:700">🆘 ${s.workerName}</p>
+      <p style="color:var(--muted);font-size:12px;margin-top:4px">${new Date(s.ts).toLocaleString('es-CO')}</p>
+      <p style="color:var(--muted);font-size:12px">📍 ${s.lat?.toFixed(5)}, ${s.lng?.toFixed(5)}</p>
+    </div>`).join('');
+}
+
+// ── PARK SWITCH ──
+function switchPark(p){
+  currentPark=p;
+  Object.keys(markers).forEach(removeMarker);
+  workers={};
+  renderWorkers();
+  map.setView(PARK_CENTERS[p],15,{animate:true});
+  socket?.emit('leave:park',currentPark);
+  socket?.emit('join:park',p);
+  loadWorkers();
+}
+
+// ── SIDEBAR ──
+function toggleSidebar(force){
+  sidebarOpen = force!==undefined ? force : !sidebarOpen;
+  const sb=document.getElementById('sidebar');
+  sb.classList.toggle('open',sidebarOpen);
+  document.getElementById('handle-title').textContent=sidebarOpen?'▼ TRABAJADORES':'▲ TRABAJADORES';
+}
+
+// ── TABS ──
+function switchTab(tab,btn){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('worker-list').style.display=tab==='workers'?'block':'none';
+  document.getElementById('sos-list').style.display=tab==='sos'?'block':'none';
+  if(tab==='sos') renderSOSList();
+}
+
+// ── CENTER MAP ──
+function centerMap(){
+  const online=Object.values(workers).filter(w=>w.online&&w.lat);
+  if(online.length){
+    const lats=online.map(w=>w.lat), lngs=online.map(w=>w.lng);
+    map.fitBounds([[Math.min(...lats),Math.min(...lngs)],[Math.max(...lats),Math.max(...lngs)]],{padding:[40,40]});
+  } else {
+    map.setView(PARK_CENTERS[currentPark],15,{animate:true});
+  }
+}
+
+// ── PWA INSTALL ──
+window.addEventListener('beforeinstallprompt',(e)=>{
+  e.preventDefault(); deferredInstall=e;
+  document.getElementById('install-banner').classList.add('show');
+});
+function installApp(){
+  if(!deferredInstall) return;
+  deferredInstall.prompt();
+  deferredInstall.userChoice.then(()=>{
+    document.getElementById('install-banner').classList.remove('show');
+    deferredInstall=null;
+  });
+}
+
+// ── CLOCK ──
+setInterval(()=>{
+  document.getElementById('stat-time').textContent=new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
+},30000);
+
+// ── INIT ──
+initMap();
+initSocket();
+renderWorkers();
+renderSOSList();
+</script>
+</body>
+</html>

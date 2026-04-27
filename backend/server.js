@@ -37,8 +37,11 @@ app.set('io', io);
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 
-// Servir la app maestra desde la raíz del proyecto
-app.use(express.static(path.join(__dirname, '..')));
+// Servir la app maestra desde la carpeta public (Railway) o raíz (local)
+const publicDir = path.join(__dirname, 'public');
+const rootDir   = path.join(__dirname, '..');
+app.use(express.static(publicDir));
+app.use(express.static(rootDir));
 
 // ─── RUTAS REST ──────────────────────────────────────────────
 
