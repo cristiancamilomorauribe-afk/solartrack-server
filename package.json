@@ -1,0 +1,29 @@
+{
+  "name": "solartrack",
+  "version": "1.0.0",
+  "description": "SolarTrack — Seguimiento de trabajadores en parques solares",
+  "scripts": {
+    "backend":        "cd backend && npm start",
+    "backend:dev":    "cd backend && npm run dev",
+    "mobile:init":    "npx cap init SolarTrack com.solartrack.app --web-dir .",
+    "mobile:android": "npx cap add android && npx cap sync android && npx cap open android",
+    "mobile:ios":     "npx cap add ios && npx cap sync ios && npx cap open ios",
+    "mobile:sync":    "npx cap sync",
+    "mobile:run:android": "npx cap run android",
+    "mobile:run:ios":     "npx cap run ios"
+  },
+  "dependencies": {
+    "@capacitor/core":               "^6.0.0",
+    "@capacitor/android":            "^6.0.0",
+    "@capacitor/ios":                "^6.0.0",
+    "@capacitor/geolocation":        "^6.0.0",
+    "@capacitor/local-notifications":"^6.0.0",
+    "@capacitor/network":            "^6.0.0",
+    "@capacitor/splash-screen":      "^6.0.0",
+    "@capacitor/status-bar":         "^6.0.0",
+    "@capacitor-community/background-geolocation": "^1.2.5"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0"
+  }
+}

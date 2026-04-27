@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="theme-color" content="#f59e0b"/>
+  <title>SolarTrack Trabajador</title>
+
+  <!-- Leaflet CSS inline -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
+    :root{--solar:#f59e0b;--bg:#0f172a;--card:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--green:#22c55e;--red:#ef4444}
+    body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+    #map{width:100%;height:100%}
+    .leaflet-container{background:#1a2744}
+
+    /* Login */
+    #login{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;z-index:9999;overflow-y:auto}
+    .inp{width:100%;padding:13px 16px;border-radius:10px;background:var(--card);border:1.5px solid var(--border);color:var(--text);font-size:15px;margin-bottom:12px;outline:none}
+    .inp:focus{border-color:var(--solar)}
+    .inp::placeholder{color:var(--muted)}
+    .btn-primary{width:100%;padding:14px;border-radius:12px;background:var(--solar);color:#000;font-weight:700;font-size:16px;border:none;cursor:pointer;margin-top:4px}
+    label{font-size:12px;color:var(--muted);display:block;margin-bottom:5px}
+
+    /* Top bar */
+    #topbar{background:var(--card);border-bottom:1px solid var(--border);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+    .avatar{width:34px;height:34px;border-radius:50%;background:#1d4ed8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
+    .pill{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:99px;font-size:12px;font-weight:600}
+    .pill.online{background:#14532d;color:#4ade80}
+    .pill.offline{background:#450a0a;color:#f87171}
+    .pill.gps{background:#1e1b4b;color:#a5b4fc}
+    .pill.sync{background:#451a03;color:#fbbf24}
+
+    /* Offline banner */
+    #banner{display:none;background:#7c2d12;color:#fed7aa;text-align:center;font-size:12px;padding:7px 14px;flex-shrink:0}
+    #banner.show{display:block}
+
+    /* Map area */
+    #mapwrap{flex:1;position:relative}
+
+    /* Bottom sheet */
+    #sheet{background:var(--card);border-top:1px solid var(--border);border-radius:20px 20px 0 0;padding:16px;flex-shrink:0}
+    .handle{width:36px;height:4px;background:var(--border);border-radius:99px;margin:0 auto 14px}
+    .metric-row{display:flex;gap:8px;margin-bottom:14px}
+    .metric{background:#162032;border-radius:10px;padding:10px 12px;flex:1;text-align:center}
+    .metric-val{font-size:20px;font-weight:700;color:var(--solar)}
+    .metric-lbl{font-size:10px;color:var(--muted);margin-top:2px}
+    .btn-track{width:100%;padding:14px;border-radius:12px;border:none;font-size:15px;font-weight:700;cursor:pointer}
+    .btn-start{background:var(--green);color:#000}
+    .btn-stop{background:var(--red);color:#fff}
+    .row-info{display:flex;justify-content:space-between;margin-bottom:12px;font-size:12px}
+    select.inp-sm{background:#162032;border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:12px}
+
+    /* GPS accuracy */
+    #acc-badge{display:none;position:absolute;bottom:12px;right:12px;z-index:1000;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px}
+
+    /* Toast */
+    #toast{position:fixed;bottom:220px;left:50%;transform:translateX(-50%);background:#1e293b;border:1px solid var(--border);border-radius:8px;padding:10px 18px;font-size:13px;z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+
+    /* Sync bar */
+    #syncbar{display:none;background:#162032;padding:6px 14px;flex-shrink:0}
+    #syncbar.show{display:block}
+    #syncbar-inner{height:3px;background:var(--solar);border-radius:99px;width:0;transition:width .4s}
+
+    /* Offline map overlay */
+    #offline-map-msg{display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(15,23,42,.85);border:1px solid var(--border);border-radius:12px;padding:16px 20px;text-align:center;font-size:13px;color:var(--muted);z-index:500;pointer-events:none}
+
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+    .pulse{animation:pulse 1.5s infinite}
+
+    ::-webkit-scrollbar{width:4px}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+  </style>
+</head>
+<body>
+
+<!-- ── LOGIN ─────────────────────────────────────── -->
+<div id="login">
+  <div style="text-align:center;margin-bottom:28px">
+    <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="1.5" style="margin-bottom:10px">
+      <circle cx="12" cy="12" r="5"/>
+      <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+      <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+    </svg>
+    <div style="font-size:24px;font-weight:700;color:#f59e0b">SolarTrack</div>
+    <div style="font-size:13px;color:#94a3b8;margin-top:4px">Aplicación del Trabajador</div>
+  </div>
+
+  <div style="width:100%;max-width:360px">
+    <label>Nombre completo</label>
+    <input class="inp" id="iName" type="text" placeholder="Ej: Carlos Méndez"/>
+
+    <label>Parque solar</label>
+    <select class="inp" id="iPark">
+      <option value="P1">Parque Solar 1 — Sevilla Norte</option>
+      <option value="P2">Parque Solar 2 — Sevilla Sur</option>
+      <option value="P3">Parque Solar 3 — Cádiz Este</option>
+      <option value="P4">Parque Solar 4 — Huelva</option>
+      <option value="P5">Parque Solar 5 — Córdoba</option>
+      <option value="P6">Parque Solar 6 — Málaga</option>
+      <option value="P7">Parque Solar 7 — Almería</option>
+    </select>
+
+    <label>Zona asignada</label>
+    <select class="inp" id="iZone">
+      <option value="Z1">Sector A — Hileras 1-20</option>
+      <option value="Z2">Sector B — Hileras 21-40</option>
+      <option value="Z3">Sector C — Hileras 41-60</option>
+      <option value="Z4">Almacén / Inversor</option>
+      <option value="Z5">Zona perimetral</option>
+    </select>
+
+    <label>IP del Maestro (WiFi del parque)</label>
+    <input class="inp" id="iMaster" type="text" placeholder="192.168.1.100" value="192.168.1.100"/>
+
+    <button class="btn-primary" onclick="doLogin()">Entrar al turno →</button>
+
+    <div style="margin-top:16px;font-size:11px;color:#64748b;text-align:center;line-height:1.6">
+      ✓ Funciona sin internet<br>
+      ✓ GPS guarda localmente<br>
+      ✓ Sincroniza solo cuando hay red
+    </div>
+  </div>
+</div>
+
+<!-- ── APP PRINCIPAL ──────────────────────────────── -->
+<div id="topbar" style="display:none">
+  <div style="display:flex;align-items:center;gap:10px">
+    <div class="avatar" id="av">?</div>
+    <div>
+      <div id="uName" style="font-weight:600;font-size:13px;line-height:1.2">Trabajador</div>
+      <div id="uZone" style="font-size:11px;color:#94a3b8">Zona</div>
+    </div>
+  </div>
+  <div id="connPill" class="pill gps">⊙ GPS</div>
+  <div style="position:relative">
+    <button onclick="openHistory()" style="padding:7px 10px;background:#162032;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:12px;cursor:pointer">📋 Historial</button>
+    <div id="pendBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:#f59e0b;color:#000;border-radius:99px;font-size:10px;font-weight:700;padding:2px 6px">0</div>
+  </div>
+</div>
+
+<div id="banner">⚠ Sin conexión — guardando localmente (<span id="pendCount">0</span> puntos pendientes)</div>
+<div id="syncbar"><div id="syncbar-inner"></div></div>
+
+<div id="mapwrap" style="display:none">
+  <div id="map"></div>
+  <div id="acc-badge"><span style="color:#94a3b8">GPS: </span><span id="accVal">—</span></div>
+  <div id="offline-map-msg">📡 Sin señal de mapa<br><small>GPS activo — datos guardándose</small></div>
+</div>
+
+<div id="sheet" style="display:none">
+  <div class="handle"></div>
+  <div class="row-info">
+    <div><div style="font-size:11px;color:#94a3b8">Última posición</div><div id="lastPos" style="font-size:11px;font-weight:600;margin-top:2px">Esperando GPS...</div></div>
+    <div style="text-align:right"><div style="font-size:11px;color:#94a3b8">Actualizado</div><div id="lastTime" style="font-size:11px;font-weight:600;margin-top:2px">—</div></div>
+  </div>
+  <div class="metric-row">
+    <div class="metric"><div class="metric-val" id="mPts">0</div><div class="metric-lbl">Puntos hoy</div></div>
+    <div class="metric"><div class="metric-val" id="mKm">0.0</div><div class="metric-lbl">Km recorridos</div></div>
+    <div class="metric"><div class="metric-val" id="mTime">00:00</div><div class="metric-lbl">Tiempo activo</div></div>
+  </div>
+  <button id="trackBtn" class="btn-track btn-start" onclick="toggleTrack()">▶ Iniciar seguimiento</button>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;font-size:12px;color:#94a3b8">
+    <span>Intervalo de envío:</span>
+    <select class="inp-sm" id="interval">
+      <option value="10">Cada 10 seg</option>
+      <option value="30" selected>Cada 30 seg</option>
+      <option value="60">Cada 1 min</option>
+      <option value="300">Cada 5 min</option>
+    </select>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- ── HISTORIAL ──────────────────────────────────── -->
+<div id="histPanel" style="display:none;position:fixed;inset:0;background:#0f172a;flex-direction:column;z-index:8888">
+  <div style="background:#1e293b;border-bottom:1px solid #334155;padding:14px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0">
+    <button onclick="closeHistory()" style="background:none;border:none;color:#94a3b8;font-size:22px;cursor:pointer;padding:0">←</button>
+    <div><div style="font-weight:700;font-size:15px">Mi historial de rutas</div><div id="histSub" style="font-size:11px;color:#94a3b8">Cargando...</div></div>
+  </div>
+  <div style="padding:10px 14px;background:#1e293b;border-bottom:1px solid #334155;display:flex;gap:8px;flex-shrink:0">
+    <button onclick="setFilter('today')" id="f-today" style="flex:1;padding:7px;border-radius:8px;border:1px solid #f59e0b;background:#451a03;color:#f59e0b;font-size:12px;font-weight:600;cursor:pointer">Hoy</button>
+    <button onclick="setFilter('week')"  id="f-week"  style="flex:1;padding:7px;border-radius:8px;border:1px solid #334155;background:transparent;color:#94a3b8;font-size:12px;font-weight:600;cursor:pointer">Semana</button>
+    <button onclick="setFilter('month')" id="f-month" style="flex:1;padding:7px;border-radius:8px;border:1px solid #334155;background:transparent;color:#94a3b8;font-size:12px;font-weight:600;cursor:pointer">Mes</button>
+  </div>
+  <div id="histList" style="overflow-y:auto;flex:1;padding:12px 14px"></div>
+  <div style="padding:12px 14px;border-top:1px solid #334155;background:#1e293b;flex-shrink:0">
+    <div id="pendInfo" style="font-size:12px;margin-bottom:8px;color:#94a3b8">Calculando pendientes...</div>
+    <button onclick="manualSync()" style="width:100%;padding:10px;border-radius:8px;border:1px solid #22c55e;background:transparent;color:#22c55e;font-size:13px;font-weight:600;cursor:pointer">⬆ Sincronizar ahora con el maestro</button>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+// ESTADO GLOBAL
+// ═══════════════════════════════════════════════════
+let profile = null;
+let tracking = false;
+let watchId = null;
+let sendInterval = null;
+let mapInst = null;
+let myMarker = null;
+let myCircle = null;
+let trail = null;
+let trailPts = [];
+let lastPos = null;
+let todayPts = 0;
+let totalKm = 0;
+let startTime = null;
+let timerTick = null;
+let db = null;
+let histFilter = 'today';
+let toastTmr = null;
+
+// ═══════════════════════════════════════════════════
+// INDEXEDDB — almacenamiento offline
+// ═══════════════════════════════════════════════════
+function openDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('SolarTrackV3', 1);
+    r.onupgradeneeded = e => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('locs')) {
+        const s = d.createObjectStore('locs', { keyPath: 'id', autoIncrement: true });
+        s.createIndex('date',   'date',   { unique: false });
+        s.createIndex('synced', 'synced', { unique: false });
+      }
+      if (!d.objectStoreNames.contains('cfg')) {
+        d.createObjectStore('cfg', { keyPath: 'k' });
+      }
+    };
+    r.onsuccess = e => { db = e.target.result; res(db); };
+    r.onerror   = e => rej(e);
+  });
+}
+
+function dbSave(rec) {
+  if (!db) return;
+  const tx = db.transaction('locs', 'readwrite');
+  tx.objectStore('locs').add(rec);
+}
+
+function dbGetPending() {
+  return new Promise(res => {
+    if (!db) return res([]);
+    const tx  = db.transaction('locs', 'readonly');
+    const idx = tx.objectStore('locs').index('synced');
+    const r   = idx.getAll(0);
+    r.onsuccess = e => res(e.target.result || []);
+    r.onerror   = () => res([]);
+  });
+}
+
+function dbMarkSynced(ids) {
+  if (!db || !ids.length) return;
+  const tx = db.transaction('locs', 'readwrite');
+  const st = tx.objectStore('locs');
+  ids.forEach(id => {
+    const r = st.get(id);
+    r.onsuccess = e => { const d = e.target.result; if (d) { d.synced = 1; st.put(d); } };
+  });
+}
+
+function dbGetByDate(date) {
+  return new Promise(res => {
+    if (!db) return res([]);
+    const tx  = db.transaction('locs', 'readonly');
+    const idx = tx.objectStore('locs').index('date');
+    const r   = idx.getAll(date);
+    r.onsuccess = e => res(e.target.result || []);
+    r.onerror   = () => res([]);
+  });
+}
+
+function dbGetRange(from, to) {
+  return new Promise(res => {
+    if (!db) return res([]);
+    const tx = db.transaction('locs', 'readonly');
+    const r  = tx.objectStore('locs').index('date').getAll(IDBKeyRange.bound(from, to));
+    r.onsuccess = e => res(e.target.result || []);
+    r.onerror   = () => res([]);
+  });
+}
+
+async function cfgSave(k, v) {
+  if (!db) return;
+  const tx = db.transaction('cfg', 'readwrite');
+  tx.objectStore('cfg').put({ k, v });
+}
+
+async function cfgLoad(k) {
+  return new Promise(res => {
+    if (!db) return res(null);
+    const tx = db.transaction('cfg', 'readonly');
+    const r  = tx.objectStore('cfg').get(k);
+    r.onsuccess = e => res(e.target.result ? e.target.result.v : null);
+    r.onerror   = () => res(null);
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// LOGIN
+// ═══════════════════════════════════════════════════
+async function doLogin() {
+  const name = document.getElementById('iName').value.trim();
+  if (!name) { toast('Escribe tu nombre'); return; }
+
+  const zoneNames = { Z1:'Sector A — Hileras 1-20', Z2:'Sector B — Hileras 21-40',
+    Z3:'Sector C — Hileras 41-60', Z4:'Almacén / Inversor', Z5:'Zona perimetral' };
+  const parkNames = { P1:'Parque Solar 1', P2:'Parque Solar 2', P3:'Parque Solar 3',
+    P4:'Parque Solar 4', P5:'Parque Solar 5', P6:'Parque Solar 6', P7:'Parque Solar 7' };
+
+  profile = {
+    id:       'W_' + Date.now(),
+    name,
+    parkId:   document.getElementById('iPark').value,
+    zoneId:   document.getElementById('iZone').value,
+    zoneName: zoneNames[document.getElementById('iZone').value],
+    parkName: parkNames[document.getElementById('iPark').value],
+    masterIp: document.getElementById('iMaster').value.trim(),
+  };
+
+  await cfgSave('profile', profile);
+  startApp();
+}
+
+function startApp() {
+  document.getElementById('login').style.display    = 'none';
+  document.getElementById('topbar').style.display   = 'flex';
+  document.getElementById('mapwrap').style.display  = 'block';
+  document.getElementById('sheet').style.display    = 'block';
+
+  const ini = profile.name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+  document.getElementById('av').textContent    = ini;
+  document.getElementById('uName').textContent = profile.name;
+  document.getElementById('uZone').textContent = profile.parkName + ' · ' + profile.zoneName;
+
+  initMap();
+  loadTodayCount();
+  monitorConnectivity();
+  toast('¡Bienvenido, ' + profile.name.split(' ')[0] + '!');
+}
+
+// ═══════════════════════════════════════════════════
+// MAPA
+// ═══════════════════════════════════════════════════
+function initMap() {
+  mapInst = L.map('map', { zoomControl: false, attributionControl: false });
+
+  const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '© OpenStreetMap'
+  });
+
+  tiles.on('tileerror', () => {
+    document.getElementById('offline-map-msg').style.display = 'block';
+  });
+  tiles.on('tileload', () => {
+    document.getElementById('offline-map-msg').style.display = 'none';
+  });
+
+  tiles.addTo(mapInst);
+  L.control.zoom({ position: 'bottomleft' }).addTo(mapInst);
+  mapInst.setView([37.45, -5.98], 14);
+}
+
+function updateMap(lat, lng, acc) {
+  if (!mapInst) return;
+  if (myMarker)  mapInst.removeLayer(myMarker);
+  if (myCircle)  mapInst.removeLayer(myCircle);
+
+  myCircle = L.circle([lat, lng], { radius: acc, color: '#3b82f6', fillOpacity: .12, weight: 1 }).addTo(mapInst);
+
+  const icon = L.divIcon({
+    html: '<div style="width:18px;height:18px;border-radius:50%;background:#3b82f6;border:3px solid #fff;box-shadow:0 0 10px #3b82f6"></div>',
+    className: '', iconAnchor: [9,9], iconSize: [18,18]
+  });
+  myMarker = L.marker([lat, lng], { icon })
+    .addTo(mapInst)
+    .bindTooltip(profile.name, { permanent: false });
+
+  trailPts.push([lat, lng]);
+  if (!trail) {
+    trail = L.polyline(trailPts, { color: '#f59e0b', weight: 2.5, opacity: .7 }).addTo(mapInst);
+  } else {
+    trail.setLatLngs(trailPts);
+  }
+
+  mapInst.panTo([lat, lng], { animate: true, duration: 1 });
+
+  const accTxt = acc < 10 ? acc.toFixed(0)+'m ✓' : acc < 30 ? acc.toFixed(0)+'m' : acc.toFixed(0)+'m ⚠';
+  document.getElementById('acc-badge').style.display = 'block';
+  document.getElementById('accVal').textContent  = accTxt;
+  document.getElementById('accVal').style.color  = acc < 10 ? '#22c55e' : acc < 30 ? '#f59e0b' : '#ef4444';
+}
+
+// ═══════════════════════════════════════════════════
+// TRACKING GPS
+// ═══════════════════════════════════════════════════
+function toggleTrack() {
+  if (!tracking) startTrack(); else stopTrack();
+}
+
+function startTrack() {
+  if (!navigator.geolocation) { toast('GPS no disponible'); return; }
+  tracking  = true;
+  startTime = Date.now();
+  trailPts  = [];
+
+  document.getElementById('trackBtn').className   = 'btn-track btn-stop';
+  document.getElementById('trackBtn').textContent = '⏹ Detener seguimiento';
+  setPill('sync', '⟳ Localizando...');
+
+  watchId = navigator.geolocation.watchPosition(onGPS, onGPSErr,
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
+
+  const sec = parseInt(document.getElementById('interval').value);
+  sendInterval = setInterval(() => {
+    if (lastPos) sendPoint(lastPos.lat, lastPos.lng, lastPos.acc);
+  }, sec * 1000);
+
+  timerTick = setInterval(updateTimer, 10000);
+  toast('Seguimiento iniciado');
+}
+
+function stopTrack() {
+  tracking = false;
+  if (watchId !== null)  navigator.geolocation.clearWatch(watchId);
+  if (sendInterval)      clearInterval(sendInterval);
+  if (timerTick)         clearInterval(timerTick);
+  document.getElementById('trackBtn').className   = 'btn-track btn-start';
+  document.getElementById('trackBtn').textContent = '▶ Iniciar seguimiento';
+  setPill(navigator.onLine ? 'online' : 'offline', navigator.onLine ? '● Online' : '✕ Offline');
+  toast('Seguimiento detenido');
+}
+
+function onGPS(pos) {
+  const lat = pos.coords.latitude;
+  const lng = pos.coords.longitude;
+  const acc = pos.coords.accuracy;
+  lastPos = { lat, lng, acc };
+
+  updateMap(lat, lng, acc);
+
+  if (trailPts.length >= 2) {
+    const p = trailPts[trailPts.length - 2];
+    totalKm += haversine(p[0], p[1], lat, lng);
+    document.getElementById('mKm').textContent = totalKm.toFixed(2);
+  }
+
+  document.getElementById('lastPos').textContent  = lat.toFixed(5) + ', ' + lng.toFixed(5);
+  document.getElementById('lastTime').textContent = new Date().toLocaleTimeString('es-ES');
+
+  setPill(navigator.onLine ? 'online' : 'offline',
+    navigator.onLine ? '● Maestro WiFi' : '✕ Sin conexión');
+}
+
+function onGPSErr(err) {
+  const msgs = { 1:'Permiso GPS denegado', 2:'GPS no disponible', 3:'Tiempo GPS agotado' };
+  setPill('gps', '⊙ Error GPS');
+  toast(msgs[err.code] || 'Error GPS');
+}
+
+// ═══════════════════════════════════════════════════
+// ENVÍO AL MAESTRO + OFFLINE QUEUE
+// ═══════════════════════════════════════════════════
+async function sendPoint(lat, lng, acc) {
+  const now = new Date();
+  const rec = {
+    workerId:   profile.id,
+    workerName: profile.name,
+    parkId:     profile.parkId,
+    zoneId:     profile.zoneId,
+    zoneName:   profile.zoneName,
+    lat, lng,
+    accuracy:   acc,
+    ts:         now.toISOString(),
+    date:       now.toISOString().slice(0, 10),
+    synced:     0,
+  };
+
+  dbSave(rec);
+  todayPts++;
+  document.getElementById('mPts').textContent = todayPts;
+
+  // Intentar maestro WiFi local
+  try {
+    const r = await fetch(`http://${profile.masterIp}:8080/location`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(rec), signal: AbortSignal.timeout(3000)
+    });
+    if (r.ok) { updatePendingBadge(); return; }
+  } catch (_) {}
+
+  updatePendingBadge();
+}
+
+async function manualSync() {
+  toast('Sincronizando...');
+  const pending = await dbGetPending();
+  if (!pending.length) { toast('✓ Todo sincronizado'); return; }
+
+  showSyncBar(true);
+  try {
+    const r = await fetch(`http://${profile.masterIp}:8080/batch-locations`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workerId: profile.id, parkId: profile.parkId, locations: pending }),
+      signal: AbortSignal.timeout(10000)
+    });
+    if (r.ok) {
+      dbMarkSynced(pending.map(p => p.id));
+      toast(`✓ ${pending.length} puntos sincronizados`);
+    } else { toast('Error al sincronizar'); }
+  } catch (_) { toast('Sin conexión al maestro'); }
+
+  showSyncBar(false);
+  updatePendingBadge();
+}
+
+// ═══════════════════════════════════════════════════
+// CONECTIVIDAD
+// ═══════════════════════════════════════════════════
+function monitorConnectivity() {
+  const update = () => {
+    const online = navigator.onLine;
+    document.getElementById('banner').classList.toggle('show', !online);
+    if (online && tracking) manualSync();
+  };
+  window.addEventListener('online',  () => { toast('Conexión restaurada'); update(); });
+  window.addEventListener('offline', () => { toast('Sin conexión — guardando offline'); update(); });
+  update();
+  setInterval(updatePendingBadge, 30000);
+}
+
+async function updatePendingBadge() {
+  const p = await dbGetPending();
+  const n = p.length;
+  document.getElementById('pendCount').textContent = n;
+  document.getElementById('pendBadge').style.display = n > 0 ? 'block' : 'none';
+  document.getElementById('pendBadge').textContent   = n;
+}
+
+// ═══════════════════════════════════════════════════
+// HISTORIAL
+// ═══════════════════════════════════════════════════
+function openHistory() {
+  document.getElementById('histPanel').style.display = 'flex';
+  renderHistory();
+  renderPending();
+}
+function closeHistory() {
+  document.getElementById('histPanel').style.display = 'none';
+}
+
+function setFilter(f) {
+  histFilter = f;
+  ['today','week','month'].forEach(k => {
+    const b = document.getElementById('f-'+k);
+    b.style.borderColor = k===f ? '#f59e0b' : '#334155';
+    b.style.background  = k===f ? '#451a03' : 'transparent';
+    b.style.color       = k===f ? '#f59e0b' : '#94a3b8';
+  });
+  renderHistory();
+}
+
+async function renderHistory() {
+  const today = new Date();
+  const fmt   = d => d.toISOString().slice(0,10);
+  let dates   = [];
+
+  if (histFilter === 'today') {
+    dates = [fmt(today)];
+    document.getElementById('histSub').textContent = 'Rutas de hoy';
+  } else if (histFilter === 'week') {
+    for (let i=6;i>=0;i--) { const d=new Date(today); d.setDate(d.getDate()-i); dates.push(fmt(d)); }
+    document.getElementById('histSub').textContent = 'Últimos 7 días';
+  } else {
+    for (let i=29;i>=0;i--) { const d=new Date(today); d.setDate(d.getDate()-i); dates.push(fmt(d)); }
+    document.getElementById('histSub').textContent = 'Últimos 30 días';
+  }
+
+  const results = await Promise.all(dates.map(async d => {
+    const pts  = await dbGetByDate(d);
+    const sync = pts.filter(p => p.synced === 1).length;
+    return { date: d, total: pts.length, sync };
+  }));
+
+  const withData = results.filter(r => r.total > 0);
+  const list     = document.getElementById('histList');
+
+  if (!withData.length) {
+    list.innerHTML = `<div style="text-align:center;padding:40px 20px;color:#94a3b8">
+      <div style="font-size:36px;margin-bottom:12px">📍</div>
+      <div>Sin rutas registradas aún.<br>Inicia el seguimiento para ver tu historial.</div>
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = withData.map(r => {
+    const allSync = r.sync === r.total;
+    const km = (r.total * 0.005).toFixed(2);
+    return `<div style="background:#1e293b;border-radius:10px;padding:14px;margin-bottom:10px;border-left:3px solid ${allSync?'#22c55e':'#f59e0b'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-weight:600;font-size:14px">${fmtDate(r.date)}</div>
+        <span style="font-size:11px;padding:3px 8px;border-radius:99px;background:${allSync?'#14532d':'#451a03'};color:${allSync?'#4ade80':'#fbbf24'}">
+          ${allSync ? '✓ Sincronizado' : `⟳ ${r.total - r.sync} pendientes`}
+        </span>
+      </div>
+      <div style="display:flex;gap:16px;font-size:12px;color:#94a3b8">
+        <span>📍 ${r.total} puntos</span>
+        <span>🛤 ${km} km est.</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function renderPending() {
+  const p = await dbGetPending();
+  document.getElementById('pendInfo').textContent = p.length
+    ? `⚠ ${p.length} registros esperando envío al maestro`
+    : '✓ Todo está sincronizado';
+  document.getElementById('pendInfo').style.color = p.length ? '#fbbf24' : '#22c55e';
+}
+
+// ═══════════════════════════════════════════════════
+// UTILIDADES
+// ═══════════════════════════════════════════════════
+async function loadTodayCount() {
+  const today = new Date().toISOString().slice(0,10);
+  const pts   = await dbGetByDate(today);
+  todayPts    = pts.length;
+  document.getElementById('mPts').textContent = todayPts;
+  updatePendingBadge();
+}
+
+function updateTimer() {
+  if (!startTime) return;
+  const s = Math.floor((Date.now() - startTime) / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  document.getElementById('mTime').textContent =
+    String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+}
+
+function showSyncBar(show) {
+  const wrap = document.getElementById('syncbar');
+  const bar  = document.getElementById('syncbar-inner');
+  if (show) {
+    wrap.classList.add('show');
+    let w = 0;
+    const t = setInterval(() => { w = Math.min(w+4,90); bar.style.width=w+'%'; if(w>=90) clearInterval(t); }, 80);
+  } else {
+    bar.style.width = '100%';
+    setTimeout(() => { wrap.classList.remove('show'); bar.style.width='0'; }, 500);
+  }
+}
+
+function setPill(type, text) {
+  const el = document.getElementById('connPill');
+  el.className = 'pill ' + type;
+  el.textContent = text;
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.style.opacity = '1';
+  if (toastTmr) clearTimeout(toastTmr);
+  toastTmr = setTimeout(() => { el.style.opacity = '0'; }, 3000);
+}
+
+function haversine(lat1,lon1,lat2,lon2) {
+  const R=6371, dL=(lat2-lat1)*Math.PI/180, dO=(lon2-lon1)*Math.PI/180;
+  const a=Math.sin(dL/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dO/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function fmtDate(dateStr) {
+  const d = new Date(dateStr+'T12:00:00');
+  return d.toLocaleDateString('es-ES', { weekday:'long', day:'numeric', month:'long' });
+}
+
+// ═══════════════════════════════════════════════════
+// ARRANQUE
+// ═══════════════════════════════════════════════════
+openDB().then(async () => {
+  const saved = await cfgLoad('profile');
+  if (saved) {
+    profile = saved;
+    document.getElementById('iName').value   = saved.name   || '';
+    document.getElementById('iMaster').value = saved.masterIp || '';
+  }
+}).catch(console.error);
+</script>
+</body>
+</html>

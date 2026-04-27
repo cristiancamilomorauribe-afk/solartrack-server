@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SolarTrack — Descarga</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- QR Code generator -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <style>
+    body { background: #0f172a; color: #e2e8f0; font-family: 'Segoe UI', sans-serif; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; }
+    canvas { border-radius: 12px; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-6">
+
+  <!-- Header -->
+  <div class="text-center mb-8">
+    <svg class="mx-auto mb-3" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="1.5">
+      <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/>
+      <line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/>
+      <line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+    </svg>
+    <h1 class="text-2xl font-bold text-amber-400">SolarTrack</h1>
+    <p class="text-slate-400 text-sm mt-1">Instala la app en tu dispositivo</p>
+  </div>
+
+  <!-- IP detectada -->
+  <div class="card p-4 mb-8 text-center w-full max-w-md">
+    <div class="text-xs text-slate-400 mb-1">Servidor maestro detectado en</div>
+    <div id="server-url" class="text-lg font-mono font-bold text-amber-400">Detectando...</div>
+  </div>
+
+  <!-- Dos tarjetas -->
+  <div class="flex flex-col md:flex-row gap-6 w-full max-w-2xl">
+
+    <!-- App Maestra -->
+    <div class="card p-6 flex-1 text-center">
+      <div class="inline-block bg-blue-900 text-blue-300 text-xs font-bold px-3 py-1 rounded-full mb-4">
+        SUPERVISOR / MAESTRO
+      </div>
+      <h2 class="text-lg font-bold mb-1">App Maestra</h2>
+      <p class="text-slate-400 text-sm mb-4">Panel de control con mapa en tiempo real</p>
+
+      <canvas id="qr-master" class="mx-auto mb-4 bg-white p-2"></canvas>
+
+      <a id="link-master" href="#" target="_blank"
+        class="block w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm transition mb-2">
+        Abrir en este dispositivo
+      </a>
+      <div class="text-xs text-slate-500">Ideal en tablet o computador</div>
+
+      <div class="mt-4 p-3 bg-slate-800 rounded-lg text-left">
+        <div class="text-xs text-slate-400 font-semibold mb-2">INSTALAR EN TABLET / PC:</div>
+        <ol class="text-xs text-slate-300 space-y-1 list-decimal list-inside">
+          <li>Abre el enlace en Chrome</li>
+          <li>Chrome → menú (⋮) → <strong>"Instalar app"</strong></li>
+          <li>¡Listo! Aparece en el escritorio</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- App Esclava -->
+    <div class="card p-6 flex-1 text-center">
+      <div class="inline-block bg-green-900 text-green-300 text-xs font-bold px-3 py-1 rounded-full mb-4">
+        TRABAJADOR / ESCLAVO
+      </div>
+      <h2 class="text-lg font-bold mb-1">App Trabajador</h2>
+      <p class="text-slate-400 text-sm mb-4">GPS + seguimiento + modo offline</p>
+
+      <canvas id="qr-worker" class="mx-auto mb-4 bg-white p-2"></canvas>
+
+      <a id="link-worker" href="#" target="_blank"
+        class="block w-full py-3 rounded-xl bg-green-600 hover:bg-green-500 text-white font-bold text-sm transition mb-2">
+        Abrir en este dispositivo
+      </a>
+      <div class="text-xs text-slate-500">El trabajador escanea el QR con su móvil</div>
+
+      <div class="mt-4 p-3 bg-slate-800 rounded-lg text-left">
+        <div class="text-xs text-slate-400 font-semibold mb-2">INSTALAR EN MÓVIL:</div>
+        <div class="text-xs text-slate-300 mb-2 font-semibold">Android (Chrome):</div>
+        <ol class="text-xs text-slate-300 space-y-1 list-decimal list-inside mb-3">
+          <li>Escanea el QR con la cámara</li>
+          <li>Chrome → menú (⋮) → <strong>"Añadir a pantalla inicio"</strong></li>
+          <li>¡Aparece como app instalada!</li>
+        </ol>
+        <div class="text-xs text-slate-300 mb-2 font-semibold">iPhone (Safari):</div>
+        <ol class="text-xs text-slate-300 space-y-1 list-decimal list-inside">
+          <li>Escanea el QR y abre en Safari</li>
+          <li>Toca el botón compartir <strong>□↑</strong></li>
+          <li>Selecciona <strong>"Añadir a inicio"</strong></li>
+        </ol>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Info WiFi -->
+  <div class="card p-4 mt-6 w-full max-w-2xl">
+    <div class="text-xs text-slate-400 font-semibold mb-2 uppercase tracking-wide">Requisito de red</div>
+    <p class="text-sm text-slate-300">
+      El dispositivo del trabajador debe estar conectado a la <strong class="text-white">misma red WiFi del parque</strong>
+      que el servidor maestro, o tener datos móviles para usar el modo nube.
+      El modo offline funciona sin ninguna red.
+    </p>
+  </div>
+
+  <script>
+    // Detectar la URL del servidor actual
+    const host = location.hostname;
+    const port = location.port || '8080';
+    const base = `http://${host}:${port}`;
+
+    const masterUrl = `${base}/index.html`;
+    const workerUrl = `${base}/worker.html`;
+
+    document.getElementById('server-url').textContent = base;
+    document.getElementById('link-master').href = masterUrl;
+    document.getElementById('link-worker').href = workerUrl;
+
+    // Generar QR codes
+    QRCode.toCanvas(document.getElementById('qr-master'), masterUrl, {
+      width: 160, margin: 1,
+      color: { dark: '#1e293b', light: '#ffffff' }
+    });
+
+    QRCode.toCanvas(document.getElementById('qr-worker'), workerUrl, {
+      width: 160, margin: 1,
+      color: { dark: '#1e293b', light: '#ffffff' }
+    });
+  </script>
+</body>
+</html>

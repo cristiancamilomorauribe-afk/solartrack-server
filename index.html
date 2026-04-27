@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SolarTrack — App Maestra</title>
+  <link rel="manifest" href="manifest-master.json" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="ST Maestro" />
+  <meta name="theme-color" content="#f59e0b" />
+
+  <!-- Leaflet — usa local si existe (APK), si no CDN (web) -->
+  <script>
+    (function(){
+      var l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = (window.Capacitor || location.protocol === 'capacitor:') ? 'libs/leaflet.css' : 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(l);
+    })();
+  </script>
+  <script src="libs/leaflet.js" onerror="var s=document.createElement('script');s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';document.head.appendChild(s);"></script>
+
+  <!-- Chart.js -->
+  <script src="libs/chart.js" onerror="var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';document.head.appendChild(s);"></script>
+
+  <!-- Socket.io -->
+  <script src="libs/socket.io.js" onerror="var s=document.createElement('script');s.src='https://cdn.socket.io/4.7.4/socket.io.min.js';document.head.appendChild(s);"></script>
+
+  <!-- Tailwind -->
+  <script src="libs/tailwind.js" onerror="var s=document.createElement('script');s.src='https://cdn.tailwindcss.com';document.head.appendChild(s);"></script>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    :root {
+      --solar: #f59e0b;
+      --solar-dark: #d97706;
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; margin: 0; height: 100vh; overflow: hidden; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: var(--card); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    #map { width: 100%; height: 100%; }
+    .leaflet-container { background: #1a2744; }
+
+    /* Sidebar */
+    #sidebar { width: 320px; min-width: 320px; background: var(--card); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Tabs */
+    .tab-btn { flex: 1; padding: 10px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all .2s; }
+    .tab-btn.active { color: var(--solar); border-color: var(--solar); }
+
+    /* Worker card */
+    .worker-card { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .15s; }
+    .worker-card:hover { background: #253347; }
+    .worker-card.selected { background: #1d3a5a; border-left: 3px solid var(--solar); }
+    .worker-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .worker-dot.online { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    .worker-dot.offline { background: #ef4444; }
+    .worker-dot.pending { background: var(--solar); box-shadow: 0 0 6px var(--solar); }
+
+    /* Sync badge */
+    .sync-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+    .sync-badge.synced { background: #14532d; color: #4ade80; }
+    .sync-badge.pending { background: #451a03; color: #fbbf24; }
+    .sync-badge.offline { background: #450a0a; color: #f87171; }
+
+    /* History timeline */
+    .timeline-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--solar); flex-shrink: 0; margin-top: 4px; }
+    .timeline-line { width: 1px; background: var(--border); flex: 1; min-height: 20px; margin-left: 3px; }
+
+    /* Animated pulse */
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .animate-pulse { animation: pulse 2s infinite; }
+
+    /* Top bar */
+    #topbar { background: var(--card); border-bottom: 1px solid var(--border); height: 52px; display: flex; align-items: center; padding: 0 16px; gap: 12px; flex-shrink: 0; }
+
+    /* Modal overlay */
+    #modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 9999; align-items: center; justify-content: center; }
+    #modal-overlay.open { display: flex; }
+    #modal-box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 580px; max-height: 85vh; overflow-y: auto; }
+
+    /* Chart container */
+    .chart-wrap { background: #162032; border-radius: 8px; padding: 12px; }
+
+    /* Tooltip */
+    .leaflet-tooltip { background: #1e293b; border: 1px solid #334155; color: #e2e8f0; font-size: 12px; }
+
+    /* Offline banner */
+    #offline-banner { display: none; background: #7c2d12; color: #fed7aa; text-align: center; font-size: 12px; padding: 5px; }
+    #offline-banner.show { display: block; }
+
+    /* Park selector */
+    select { background: #162032; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<div id="offline-banner">⚠ Sin conexión a internet — datos sincronizándose localmente</div>
+
+<div style="display:flex; flex-direction:column; height:100vh;">
+
+  <!-- TOP BAR -->
+  <div id="topbar">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      <span style="font-weight:700; font-size:16px; color:#f59e0b;">SolarTrack</span>
+      <span style="font-size:11px; color:var(--muted); margin-left:4px;">MAESTRO</span>
+    </div>
+
+    <div style="margin-left:8px;">
+      <select id="park-selector" onchange="switchPark(this.value)">
+        <option value="P1">Parque Solar 1 — Barranquilla Norte</option>
+        <option value="P2">Parque Solar 2 — Barranquilla Sur</option>
+        <option value="P3">Parque Solar 3 — Soledad</option>
+        <option value="P4">Parque Solar 4 — Malambo</option>
+        <option value="P5">Parque Solar 5 — Sabanalarga</option>
+        <option value="P6">Parque Solar 6 — Cartagena</option>
+        <option value="P7">Parque Solar 7 — Santa Marta</option>
+      </select>
+    </div>
+
+    <div style="flex:1;"></div>
+
+    <!-- Stats -->
+    <div style="display:flex; gap:16px; font-size:12px;">
+      <div style="text-align:center;">
+        <div id="stat-online" style="font-size:18px; font-weight:700; color:#22c55e;">0</div>
+        <div style="color:var(--muted);">En línea</div>
+      </div>
+      <div style="text-align:center;">
+        <div id="stat-offline" style="font-size:18px; font-weight:700; color:#ef4444;">0</div>
+        <div style="color:var(--muted);">Desconect.</div>
+      </div>
+      <div style="text-align:center;">
+        <div id="stat-pending" style="font-size:18px; font-weight:700; color:#f59e0b;">0</div>
+        <div style="color:var(--muted);">Pendiente</div>
+      </div>
+    </div>
+
+    <!-- Sync indicator -->
+    <div id="sync-status" style="display:flex; align-items:center; gap:6px; margin-left:12px; font-size:12px;">
+      <div id="sync-dot" style="width:8px; height:8px; border-radius:50%; background:#22c55e;"></div>
+      <span id="sync-text" style="color:var(--muted);">Sincronizado</span>
+    </div>
+
+    <button onclick="toggleOfflineMode()" id="offline-toggle" style="margin-left:8px; padding:5px 10px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text); font-size:11px; cursor:pointer;">Simular Offline</button>
+  </div>
+
+  <!-- MAIN LAYOUT -->
+  <div style="display:flex; flex:1; overflow:hidden;">
+
+    <!-- SIDEBAR -->
+    <div id="sidebar">
+
+      <!-- Tabs -->
+      <div style="display:flex; border-bottom:1px solid var(--border); flex-shrink:0;">
+        <button class="tab-btn active" onclick="showTab('workers')" id="tab-workers">Trabajadores</button>
+        <button class="tab-btn" onclick="showTab('zones')" id="tab-zones">Zonas</button>
+        <button class="tab-btn" onclick="showTab('sync')" id="tab-sync">Sync <span id="sync-count-badge" style="background:#f59e0b;color:#000;border-radius:99px;padding:1px 5px;font-size:10px;margin-left:2px;">0</span></button>
+      </div>
+
+      <!-- Search -->
+      <div style="padding:10px; flex-shrink:0;">
+        <input id="search-input" type="text" placeholder="Buscar trabajador..." oninput="filterWorkers(this.value)"
+          style="width:100%; padding:7px 10px; background:#162032; border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px;" />
+      </div>
+
+      <!-- WORKERS TAB -->
+      <div id="tab-content-workers" style="overflow-y:auto; flex:1;">
+        <div id="worker-list"></div>
+      </div>
+
+      <!-- ZONES TAB -->
+      <div id="tab-content-zones" style="display:none; overflow-y:auto; flex:1; padding:12px;">
+        <div id="zone-list"></div>
+        <button onclick="openImportModal()" style="width:100%; margin-top:10px; padding:9px; border-radius:8px; border:1px dashed var(--border); background:transparent; color:var(--muted); font-size:12px; cursor:pointer;">
+          + Importar mapa personalizado (PNG / KML / KMZ)
+        </button>
+      </div>
+
+      <!-- SYNC TAB -->
+      <div id="tab-content-sync" style="display:none; overflow-y:auto; flex:1; padding:12px;">
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Cola de sincronización offline</div>
+        <div id="sync-queue-list"></div>
+        <button onclick="forcSync()" style="width:100%; margin-top:10px; padding:9px; border-radius:8px; border:1px solid #22c55e; background:transparent; color:#22c55e; font-size:12px; cursor:pointer;">
+          ⬆ Sincronizar ahora
+        </button>
+      </div>
+
+    </div>
+
+    <!-- MAP -->
+    <div style="flex:1; position:relative;">
+      <div id="map"></div>
+
+      <!-- Map controls overlay -->
+      <div style="position:absolute; top:10px; right:10px; z-index:1000; display:flex; flex-direction:column; gap:8px;">
+        <button onclick="toggleTrails()" id="trails-btn" style="padding:7px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; cursor:pointer;">🛤 Rutas</button>
+        <button onclick="openHistoryModal()" style="padding:7px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; cursor:pointer;">📅 Historial</button>
+        <button onclick="fitMapBounds()" style="padding:7px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; cursor:pointer;">⛶ Ajustar</button>
+      </div>
+
+      <!-- Legend -->
+      <div style="position:absolute; bottom:20px; left:10px; z-index:1000; background:var(--card); border:1px solid var(--border); border-radius:8px; padding:10px; font-size:11px;">
+        <div style="font-weight:600; margin-bottom:6px; color:var(--muted);">LEYENDA</div>
+        <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;"><div style="width:10px;height:10px;border-radius:50%;background:#22c55e;"></div> En línea</div>
+        <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;"><div style="width:10px;height:10px;border-radius:50%;background:#ef4444;"></div> Desconectado</div>
+        <div style="display:flex; align-items:center; gap:6px;"><div style="width:10px;height:10px;border-radius:50%;background:#f59e0b;"></div> Pendiente sync</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ====== MODAL HISTORIAL ====== -->
+<div id="modal-overlay" onclick="closeModal(event)">
+  <div id="modal-box" onclick="event.stopPropagation()">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h2 style="margin:0; font-size:16px;">📅 Historial de Desplazamientos</h2>
+      <button onclick="closeModal()" style="background:none; border:none; color:var(--muted); font-size:20px; cursor:pointer;">✕</button>
+    </div>
+
+    <!-- Filters -->
+    <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
+      <select id="hist-worker" style="flex:1; min-width:150px;" onchange="updateHistoryView()">
+        <option value="all">Todos los trabajadores</option>
+      </select>
+      <select id="hist-period" onchange="updateHistoryView()">
+        <option value="day">Por día</option>
+        <option value="month">Por mes</option>
+      </select>
+      <input type="date" id="hist-date" onchange="updateHistoryView()"
+        style="background:#162032; border:1px solid var(--border); border-radius:6px; padding:5px 8px; color:var(--text); font-size:13px;" />
+    </div>
+
+    <!-- Chart -->
+    <div class="chart-wrap" style="margin-bottom:16px;">
+      <canvas id="history-chart" height="120"></canvas>
+    </div>
+
+    <!-- Timeline -->
+    <div style="font-size:12px; color:var(--muted); margin-bottom:8px; font-weight:600; text-transform:uppercase; letter-spacing:.5px;">Línea de tiempo</div>
+    <div id="history-timeline" style="max-height:260px; overflow-y:auto;"></div>
+
+    <!-- Stats row -->
+    <div id="history-stats" style="display:flex; gap:12px; margin-top:16px; flex-wrap:wrap;"></div>
+  </div>
+</div>
+
+<!-- ====== MODAL IMPORT ====== -->
+<div id="import-modal-overlay" onclick="closeImportModal(event)" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:9999; align-items:center; justify-content:center;">
+  <div style="background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px; width:480px;" onclick="event.stopPropagation()">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h2 style="margin:0; font-size:16px;">📁 Importar Mapa Personalizado</h2>
+      <button onclick="closeImportModal()" style="background:none; border:none; color:var(--muted); font-size:20px; cursor:pointer;">✕</button>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <div>
+        <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:5px;">Imagen del parque (PNG / JPG)</label>
+        <input type="file" accept=".png,.jpg,.jpeg" id="map-image-input" onchange="previewMapImage(event)"
+          style="width:100%; padding:8px; background:#162032; border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px;" />
+      </div>
+      <div>
+        <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:5px;">Zonas del parque (KML / KMZ / GeoJSON)</label>
+        <input type="file" accept=".kml,.kmz,.geojson,.json" id="zones-file-input"
+          style="width:100%; padding:8px; background:#162032; border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px;" />
+      </div>
+
+      <div style="background:#162032; border-radius:8px; padding:12px; font-size:12px; color:var(--muted); line-height:1.6;">
+        <div style="color:var(--solar); font-weight:600; margin-bottom:6px;">¿Cómo crear el KMZ?</div>
+        1. Abre <strong style="color:var(--text);">Google Earth</strong> (gratuito)<br>
+        2. Dibuja los polígonos de cada zona del parque<br>
+        3. Click derecho → <em>Guardar lugar como</em> → formato <strong style="color:var(--text);">KMZ</strong><br>
+        4. Sube el archivo aquí
+      </div>
+
+      <div id="calibration-section" style="display:none;">
+        <div style="font-size:12px; color:var(--solar); font-weight:600; margin-bottom:8px;">Calibración GPS (3 puntos de referencia)</div>
+        <div id="calibration-points"></div>
+      </div>
+
+      <button onclick="applyCustomMap()" style="padding:10px; border-radius:8px; background:var(--solar); color:#000; font-weight:700; border:none; cursor:pointer; font-size:14px;">
+        Aplicar mapa al parque
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// =====================================================
+// DATOS MOCK — simulan los 7 parques con 30 trabajadores c/u
+// =====================================================
+const PARK_CENTERS = {
+  P1: [11.012, -74.837],  // Barranquilla Norte
+  P2: [10.980, -74.860],  // Barranquilla Sur
+  P3: [10.920, -74.760],  // Soledad
+  P4: [10.850, -74.780],  // Malambo
+  P5: [10.630, -74.920],  // Sabanalarga
+  P6: [10.391, -75.479],  // Cartagena
+  P7: [11.240, -74.199],  // Santa Marta
+};
+
+const ZONES_TEMPLATE = [
+  { id:'Z1', name:'Sector A — Hileras 1-20', color:'#3b82f6' },
+  { id:'Z2', name:'Sector B — Hileras 21-40', color:'#8b5cf6' },
+  { id:'Z3', name:'Sector C — Hileras 41-60', color:'#ec4899' },
+  { id:'Z4', name:'Almacén / Inversor', color:'#f59e0b' },
+  { id:'Z5', name:'Zona perimetral', color:'#22c55e' },
+];
+
+const WORKER_NAMES = [
+  'Carlos Mora','Ana Herrera','Luis Perez','Maria Gonzalez','Jose Martinez',
+  'Carmen Diaz','Pedro Ramirez','Laura Vargas','Andres Torres','Isabel Rios',
+  'Manuel Ospina','Rosa Cardona','Francisco Mejia','Elena Gutierrez','Miguel Restrepo',
+  'Paola Romero','Rafael Navarro','Cristina Molina','David Ortega','Beatriz Castro',
+  'Sergio Alvarez','Natalia Gomez','Pablo Herrera','Marta Munoz','Alejandro Gil',
+  'Viviana Lopez','Roberto Dominguez','Silvia Pena','Javier Suarez','Lucia Vega',
+];
+
+let currentPark = 'P1';
+let workersData = {};
+let mapInstance = null;
+let workerMarkers = {};
+let trailLayers = {};
+let zonePolygons = {};
+let showTrails = false;
+let isOfflineMode = false;
+let offlineQueue = [];
+let selectedWorker = null;
+let histChart = null;
+let updateInterval = null;
+
+// Generate deterministic pseudo-random
+function seededRand(seed) {
+  let s = seed;
+  return function() {
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    return s / 0x7fffffff;
+  };
+}
+
+function generateWorkers(parkId) {
+  const center = PARK_CENTERS[parkId];
+  const rand = seededRand(parkId.charCodeAt(1) * 1337);
+  const workers = [];
+
+  WORKER_NAMES.forEach((name, i) => {
+    const statusRoll = rand();
+    const status = statusRoll < 0.7 ? 'online' : statusRoll < 0.85 ? 'pending' : 'offline';
+    const zoneIdx = Math.floor(rand() * 5);
+    const baseLat = center[0] + (rand() - 0.5) * 0.012;
+    const baseLng = center[1] + (rand() - 0.5) * 0.018;
+
+    // Generate location history for last 30 days
+    const history = generateLocationHistory(baseLat, baseLng, rand, parkId + '_' + i);
+
+    workers.push({
+      id: `${parkId}_W${String(i+1).padStart(2,'0')}`,
+      name,
+      zone: ZONES_TEMPLATE[zoneIdx].id,
+      zoneName: ZONES_TEMPLATE[zoneIdx].name,
+      status,
+      lat: baseLat + (rand()-0.5)*0.001,
+      lng: baseLng + (rand()-0.5)*0.001,
+      lastSeen: status === 'offline' ? new Date(Date.now() - rand()*3600000*8).toISOString() : new Date().toISOString(),
+      pendingPoints: status === 'pending' ? Math.floor(rand()*80 + 5) : 0,
+      history,
+      battery: Math.floor(rand() * 100),
+    });
+  });
+
+  return workers;
+}
+
+function generateLocationHistory(baseLat, baseLng, rand, seed) {
+  // Last 30 days, each day ~8 hours of data (every 5 min = 96 points/day)
+  const history = [];
+  const now = new Date();
+
+  for (let day = 29; day >= 0; day--) {
+    const dayPoints = [];
+    const dayStart = new Date(now);
+    dayStart.setDate(dayStart.getDate() - day);
+    dayStart.setHours(7, 0, 0, 0);
+
+    let lat = baseLat + (rand()-0.5)*0.004;
+    let lng = baseLng + (rand()-0.5)*0.006;
+
+    for (let m = 0; m < 8*60; m += 5) {
+      lat += (rand()-0.5)*0.0004;
+      lng += (rand()-0.5)*0.0006;
+      const t = new Date(dayStart.getTime() + m*60000);
+      dayPoints.push({ lat, lng, ts: t.toISOString() });
+    }
+    history.push({ date: dayStart.toISOString().slice(0,10), points: dayPoints });
+  }
+  return history;
+}
+
+// Initialize all parks
+['P1','P2','P3','P4','P5','P6','P7'].forEach(p => {
+  workersData[p] = generateWorkers(p);
+});
+
+// =====================================================
+// MAP INIT
+// =====================================================
+function initMap() {
+  const center = PARK_CENTERS[currentPark];
+  mapInstance = L.map('map', {
+    center,
+    zoom: 15,
+    zoomControl: false,
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap',
+    maxZoom: 19,
+  }).addTo(mapInstance);
+
+  L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
+
+  renderMap();
+}
+
+function getWorkerIcon(worker) {
+  const colors = { online: '#22c55e', offline: '#ef4444', pending: '#f59e0b' };
+  const color = colors[worker.status];
+  const isSelected = selectedWorker && selectedWorker.id === worker.id;
+  const size = isSelected ? 18 : 13;
+
+  return L.divIcon({
+    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 ${isSelected?12:6}px ${color};"></div>`,
+    className: '',
+    iconAnchor: [size/2, size/2],
+    iconSize: [size, size],
+  });
+}
+
+function renderMap() {
+  const workers = workersData[currentPark];
+
+  // Clear existing markers
+  Object.values(workerMarkers).forEach(m => mapInstance.removeLayer(m));
+  workerMarkers = {};
+  Object.values(trailLayers).forEach(l => mapInstance.removeLayer(l));
+  trailLayers = {};
+  Object.values(zonePolygons).forEach(p => mapInstance.removeLayer(p));
+  zonePolygons = {};
+
+  // Draw zones
+  const center = PARK_CENTERS[currentPark];
+  ZONES_TEMPLATE.forEach((zone, zi) => {
+    const offLat = (zi - 2) * 0.0025;
+    const poly = L.polygon([
+      [center[0]+offLat, center[1]-0.007],
+      [center[0]+offLat+0.0022, center[1]-0.007],
+      [center[0]+offLat+0.0022, center[1]+0.007],
+      [center[0]+offLat, center[1]+0.007],
+    ], {
+      color: zone.color,
+      fillColor: zone.color,
+      fillOpacity: 0.08,
+      weight: 1.5,
+      dashArray: '5,5',
+    }).addTo(mapInstance);
+    poly.bindTooltip(zone.name, { permanent: false, className: 'leaflet-tooltip' });
+    zonePolygons[zone.id] = poly;
+  });
+
+  // Draw workers
+  workers.forEach(w => {
+    const marker = L.marker([w.lat, w.lng], { icon: getWorkerIcon(w) })
+      .addTo(mapInstance)
+      .bindTooltip(`<b>${w.name}</b><br>${w.zoneName}<br><span style="color:${w.status==='online'?'#22c55e':w.status==='offline'?'#ef4444':'#f59e0b'}">${w.status==='online'?'En línea':w.status==='offline'?'Sin conexión':'Pendiente sync'}</span>`, { className: 'leaflet-tooltip' });
+
+    marker.on('click', () => selectWorker(w));
+    workerMarkers[w.id] = marker;
+
+    // Draw trail if enabled
+    if (showTrails && w.history.length > 0) {
+      const todayPoints = w.history[w.history.length-1].points;
+      const latlngs = todayPoints.map(p => [p.lat, p.lng]);
+      const trail = L.polyline(latlngs, { color: '#f59e0b', weight: 1.5, opacity: 0.5 }).addTo(mapInstance);
+      trailLayers[w.id] = trail;
+    }
+  });
+
+  updateStats();
+  renderWorkerList();
+}
+
+// =====================================================
+// WORKER LIST
+// =====================================================
+function renderWorkerList(filter = '') {
+  const workers = workersData[currentPark].filter(w =>
+    !filter || w.name.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  const list = document.getElementById('worker-list');
+  list.innerHTML = workers.map(w => `
+    <div class="worker-card ${selectedWorker && selectedWorker.id === w.id ? 'selected' : ''}"
+         onclick="selectWorker(workersData[currentPark].find(x=>x.id==='${w.id}'))">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div class="worker-dot ${w.status} ${w.status==='online'?'animate-pulse':''}"></div>
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:600; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${w.name}</div>
+          <div style="font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${w.zoneName}</div>
+        </div>
+        ${w.status==='pending' ? `<span class="sync-badge pending">⟳ ${w.pendingPoints}</span>` : ''}
+        ${w.status==='offline' ? `<span class="sync-badge offline">✕</span>` : ''}
+        ${w.status==='online' ? `<span class="sync-badge synced">✓</span>` : ''}
+      </div>
+      <div style="display:flex; justify-content:space-between; margin-top:5px; font-size:10px; color:var(--muted);">
+        <span>🔋 ${w.battery}%</span>
+        <span>${w.status === 'offline' ? '↩ ' + formatRelTime(w.lastSeen) : 'Ahora'}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function filterWorkers(val) {
+  renderWorkerList(val);
+}
+
+function selectWorker(worker) {
+  selectedWorker = worker;
+  // Re-render markers with highlight
+  Object.values(workerMarkers).forEach((m, i) => {
+    const w = workersData[currentPark].find(x => workerMarkers[x.id] === m);
+    if (w) m.setIcon(getWorkerIcon(w));
+  });
+  // Pan to worker
+  if (worker) {
+    mapInstance.panTo([worker.lat, worker.lng], { animate: true });
+    // Show trail for selected worker
+    if (trailLayers[worker.id]) mapInstance.removeLayer(trailLayers[worker.id]);
+    const todayPoints = worker.history[worker.history.length-1].points;
+    const latlngs = todayPoints.map(p => [p.lat, p.lng]);
+    const trail = L.polyline(latlngs, { color: '#f59e0b', weight: 2, opacity: 0.8 }).addTo(mapInstance);
+    trailLayers[worker.id] = trail;
+  }
+  renderWorkerList(document.getElementById('search-input').value);
+}
+
+// =====================================================
+// ZONES TAB
+// =====================================================
+function renderZoneList() {
+  const workers = workersData[currentPark];
+  const list = document.getElementById('zone-list');
+  list.innerHTML = ZONES_TEMPLATE.map(z => {
+    const count = workers.filter(w => w.zone === z.id).length;
+    const online = workers.filter(w => w.zone === z.id && w.status === 'online').length;
+    return `
+      <div style="padding:10px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px; border-left:3px solid ${z.color};">
+        <div style="font-weight:600; font-size:13px;">${z.name}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px;">${online} en línea / ${count} total</div>
+      </div>
+    `;
+  }).join('');
+}
+
+// =====================================================
+// SYNC QUEUE
+// =====================================================
+function renderSyncQueue() {
+  const pending = workersData[currentPark].filter(w => w.status === 'pending' || w.pendingPoints > 0);
+  const queue = document.getElementById('sync-queue-list');
+  const badge = document.getElementById('sync-count-badge');
+
+  badge.textContent = pending.length;
+
+  if (pending.length === 0) {
+    queue.innerHTML = `<div style="text-align:center; color:var(--muted); padding:20px; font-size:12px;">✓ No hay datos pendientes</div>`;
+    return;
+  }
+
+  queue.innerHTML = pending.map(w => `
+    <div style="padding:10px; background:#162032; border-radius:8px; margin-bottom:8px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-weight:600; font-size:13px;">${w.name}</span>
+        <span style="font-size:11px; background:#451a03; color:#fbbf24; padding:2px 7px; border-radius:99px;">${w.pendingPoints} puntos</span>
+      </div>
+      <div style="font-size:11px; color:var(--muted); margin-top:4px;">${w.zoneName}</div>
+      <div style="margin-top:8px; background:#1e293b; border-radius:4px; overflow:hidden; height:4px;">
+        <div style="width:${Math.min(100,w.pendingPoints)}%; height:100%; background:var(--solar); transition:width .3s;"></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// =====================================================
+// STATS
+// =====================================================
+function updateStats() {
+  const workers = workersData[currentPark];
+  document.getElementById('stat-online').textContent = workers.filter(w => w.status==='online').length;
+  document.getElementById('stat-offline').textContent = workers.filter(w => w.status==='offline').length;
+  document.getElementById('stat-pending').textContent = workers.filter(w => w.status==='pending').length;
+}
+
+// =====================================================
+// HISTORY MODAL
+// =====================================================
+function openHistoryModal() {
+  const modal = document.getElementById('modal-overlay');
+  modal.classList.add('open');
+
+  // Populate worker select
+  const sel = document.getElementById('hist-worker');
+  sel.innerHTML = '<option value="all">Todos los trabajadores</option>' +
+    workersData[currentPark].map(w => `<option value="${w.id}">${w.name}</option>`).join('');
+
+  // Set today's date
+  const today = new Date().toISOString().slice(0,10);
+  document.getElementById('hist-date').value = today;
+
+  updateHistoryView();
+}
+
+function closeModal(e) {
+  if (!e || e.target === document.getElementById('modal-overlay')) {
+    document.getElementById('modal-overlay').classList.remove('open');
+  }
+}
+
+function updateHistoryView() {
+  const period = document.getElementById('hist-period').value;
+  const workerId = document.getElementById('hist-worker').value;
+  const dateVal = document.getElementById('hist-date').value;
+
+  let workers = workerId === 'all' ? workersData[currentPark] : workersData[currentPark].filter(w => w.id === workerId);
+
+  if (period === 'day') {
+    renderDayHistory(workers, dateVal);
+  } else {
+    renderMonthHistory(workers, dateVal ? dateVal.slice(0,7) : new Date().toISOString().slice(0,7));
+  }
+}
+
+function renderDayHistory(workers, date) {
+  // Aggregate all points for the day
+  const allPoints = [];
+  workers.forEach(w => {
+    const dayData = w.history.find(h => h.date === date);
+    if (dayData) {
+      dayData.points.forEach((p, i) => {
+        if (i % 12 === 0) allPoints.push({ worker: w.name, time: p.ts, lat: p.lat, lng: p.lng });
+      });
+    }
+  });
+
+  // Chart: points per hour
+  const hourCounts = Array(24).fill(0);
+  allPoints.forEach(p => {
+    const h = new Date(p.ts).getHours();
+    hourCounts[h]++;
+  });
+
+  renderChart(
+    Array.from({length:24}, (_,i) => `${String(i).padStart(2,'0')}:00`),
+    hourCounts,
+    'Registros de ubicación por hora'
+  );
+
+  // Timeline
+  const tl = document.getElementById('history-timeline');
+  if (allPoints.length === 0) {
+    tl.innerHTML = `<div style="color:var(--muted); font-size:12px; text-align:center; padding:20px;">Sin datos para esta fecha</div>`;
+  } else {
+    tl.innerHTML = allPoints.slice(0,40).map((p, i) => `
+      <div style="display:flex; gap:10px; margin-bottom:8px;">
+        <div style="display:flex; flex-direction:column; align-items:center;">
+          <div class="timeline-dot"></div>
+          ${i < allPoints.length-1 ? '<div class="timeline-line"></div>' : ''}
+        </div>
+        <div style="padding-bottom:12px;">
+          <div style="font-size:12px; font-weight:600;">${p.worker}</div>
+          <div style="font-size:11px; color:var(--muted);">${formatTime(p.time)} — ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // Stats
+  renderHistStats(workers, allPoints.length, date);
+}
+
+function renderMonthHistory(workers, month) {
+  // Chart: points per day of month
+  const days = [];
+  const counts = [];
+  const [year, mon] = month.split('-').map(Number);
+  const daysInMonth = new Date(year, mon, 0).getDate();
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${month}-${String(d).padStart(2,'0')}`;
+    days.push(d);
+    let count = 0;
+    workers.forEach(w => {
+      const dayData = w.history.find(h => h.date === dateStr);
+      if (dayData) count += dayData.points.length;
+    });
+    counts.push(count);
+  }
+
+  renderChart(days.map(d => String(d)), counts, `Registros por día — ${month}`);
+
+  // Timeline: show summary per day
+  const tl = document.getElementById('history-timeline');
+  tl.innerHTML = days.map((d, i) => {
+    const dateStr = `${month}-${String(d).padStart(2,'0')}`;
+    const total = counts[i];
+    const active = workers.filter(w => w.history.find(h => h.date === dateStr && h.points.length > 0)).length;
+    return `
+      <div style="display:flex; gap:10px; margin-bottom:8px; align-items:center;">
+        <div class="timeline-dot"></div>
+        <div style="display:flex; justify-content:space-between; width:100%; font-size:12px;">
+          <span style="font-weight:600;">${dateStr}</span>
+          <span style="color:var(--muted);">${active} trabajadores • ${total} registros</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  renderHistStats(workers, counts.reduce((a,b)=>a+b,0), month);
+}
+
+function renderChart(labels, data, title) {
+  const ctx = document.getElementById('history-chart').getContext('2d');
+  if (histChart) histChart.destroy();
+  histChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: title,
+        data,
+        backgroundColor: 'rgba(245,158,11,0.6)',
+        borderColor: '#f59e0b',
+        borderWidth: 1,
+        borderRadius: 3,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false }, title: { display: true, text: title, color: '#94a3b8', font: { size: 12 } } },
+      scales: {
+        x: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8', font: { size: 10 } } },
+        y: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8', font: { size: 10 } } },
+      }
+    }
+  });
+}
+
+function renderHistStats(workers, totalPoints, period) {
+  const container = document.getElementById('history-stats');
+  const totalWorkers = workers.length;
+  const kmEst = (totalPoints * 0.005).toFixed(1);
+
+  container.innerHTML = [
+    { label: 'Trabajadores', value: totalWorkers, color: '#3b82f6' },
+    { label: 'Registros GPS', value: totalPoints.toLocaleString(), color: '#22c55e' },
+    { label: 'Km estimados', value: kmEst, color: '#f59e0b' },
+    { label: 'Período', value: period, color: '#8b5cf6' },
+  ].map(s => `
+    <div style="flex:1; min-width:100px; background:#162032; border-radius:8px; padding:10px; text-align:center;">
+      <div style="font-size:18px; font-weight:700; color:${s.color};">${s.value}</div>
+      <div style="font-size:11px; color:var(--muted);">${s.label}</div>
+    </div>
+  `).join('');
+}
+
+// =====================================================
+// IMPORT MODAL
+// =====================================================
+function openImportModal() {
+  document.getElementById('import-modal-overlay').style.display = 'flex';
+}
+function closeImportModal(e) {
+  if (!e || e.target === document.getElementById('import-modal-overlay')) {
+    document.getElementById('import-modal-overlay').style.display = 'none';
+  }
+}
+function previewMapImage(e) {
+  document.getElementById('calibration-section').style.display = 'block';
+  const pts = document.getElementById('calibration-points');
+  pts.innerHTML = [1,2,3].map(n => `
+    <div style="margin-bottom:10px; padding:10px; background:#162032; border-radius:6px;">
+      <div style="font-size:12px; color:var(--muted); margin-bottom:5px;">Punto ${n}</div>
+      <div style="display:flex; gap:8px;">
+        <input type="number" placeholder="Latitud" step="0.00001"
+          style="flex:1; padding:5px; background:#0f172a; border:1px solid var(--border); border-radius:5px; color:var(--text); font-size:12px;" />
+        <input type="number" placeholder="Longitud" step="0.00001"
+          style="flex:1; padding:5px; background:#0f172a; border:1px solid var(--border); border-radius:5px; color:var(--text); font-size:12px;" />
+      </div>
+    </div>
+  `).join('');
+}
+function applyCustomMap() {
+  closeImportModal();
+  showNotification('✓ Mapa personalizado aplicado al parque');
+}
+
+// =====================================================
+// CONTROLS
+// =====================================================
+function toggleTrails() {
+  showTrails = !showTrails;
+  document.getElementById('trails-btn').style.background = showTrails ? '#1d3a5a' : 'var(--card)';
+  renderMap();
+}
+
+function fitMapBounds() {
+  const workers = workersData[currentPark];
+  if (workers.length === 0) return;
+  const bounds = L.latLngBounds(workers.map(w => [w.lat, w.lng]));
+  mapInstance.fitBounds(bounds, { padding: [40, 40] });
+}
+
+function switchPark(parkId) {
+  currentPark = parkId;
+  selectedWorker = null;
+  const center = PARK_CENTERS[parkId];
+  mapInstance.setView(center, 15, { animate: true });
+  renderMap();
+  renderZoneList();
+  renderSyncQueue();
+}
+
+function showTab(tab) {
+  ['workers','zones','sync'].forEach(t => {
+    document.getElementById('tab-content-'+t).style.display = t===tab ? 'flex' : 'none';
+    document.getElementById('tab-'+t).classList.toggle('active', t===tab);
+  });
+  if (tab === 'zones') {
+    document.getElementById('tab-content-zones').style.display = 'block';
+    renderZoneList();
+  }
+  if (tab === 'sync') {
+    document.getElementById('tab-content-sync').style.display = 'block';
+    renderSyncQueue();
+  }
+  if (tab === 'workers') {
+    document.getElementById('tab-content-workers').style.display = 'block';
+  }
+}
+
+// =====================================================
+// OFFLINE MODE SIMULATION
+// =====================================================
+function toggleOfflineMode() {
+  isOfflineMode = !isOfflineMode;
+  const btn = document.getElementById('offline-toggle');
+  const dot = document.getElementById('sync-dot');
+  const txt = document.getElementById('sync-text');
+  const banner = document.getElementById('offline-banner');
+
+  if (isOfflineMode) {
+    btn.textContent = 'Restaurar conexión';
+    btn.style.borderColor = '#ef4444';
+    dot.style.background = '#ef4444';
+    txt.textContent = 'Sin conexión';
+    banner.classList.add('show');
+
+    // Simulate accumulating offline data
+    workersData[currentPark].forEach(w => {
+      if (w.status === 'online') {
+        w.status = 'pending';
+        w.pendingPoints = Math.floor(Math.random()*30 + 5);
+      }
+    });
+  } else {
+    btn.textContent = 'Simular Offline';
+    btn.style.borderColor = 'var(--border)';
+    dot.style.background = '#f59e0b';
+    txt.textContent = 'Sincronizando...';
+    banner.classList.remove('show');
+
+    // Simulate sync
+    setTimeout(() => {
+      workersData[currentPark].forEach(w => {
+        if (w.status === 'pending') {
+          w.status = 'online';
+          w.pendingPoints = 0;
+        }
+      });
+      dot.style.background = '#22c55e';
+      txt.textContent = 'Sincronizado';
+      renderMap();
+      renderSyncQueue();
+      showNotification('✓ Sincronización completada — todos los datos enviados al maestro');
+    }, 2500);
+  }
+
+  renderMap();
+  renderSyncQueue();
+}
+
+function forcSync() {
+  showNotification('⬆ Sincronizando datos pendientes...');
+  setTimeout(() => {
+    workersData[currentPark].forEach(w => {
+      if (w.pendingPoints > 0) {
+        w.pendingPoints = 0;
+        if (w.status === 'pending') w.status = 'online';
+      }
+    });
+    renderMap();
+    renderSyncQueue();
+    showNotification('✓ Sincronización forzada completada');
+  }, 1800);
+}
+
+// =====================================================
+// LIVE SIMULATION — moves workers slightly every 8s
+// =====================================================
+function startLiveSimulation() {
+  updateInterval = setInterval(() => {
+    if (isOfflineMode) return;
+    workersData[currentPark].forEach(w => {
+      if (w.status === 'online') {
+        w.lat += (Math.random()-0.5)*0.0003;
+        w.lng += (Math.random()-0.5)*0.0004;
+        if (workerMarkers[w.id]) {
+          workerMarkers[w.id].setLatLng([w.lat, w.lng]);
+        }
+        if (showTrails && trailLayers[w.id]) {
+          trailLayers[w.id].addLatLng([w.lat, w.lng]);
+        }
+      }
+    });
+  }, 8000);
+}
+
+// =====================================================
+// HELPERS
+// =====================================================
+function formatTime(isoStr) {
+  const d = new Date(isoStr);
+  return d.toLocaleTimeString('es-ES', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+
+function formatRelTime(isoStr) {
+  const diff = Date.now() - new Date(isoStr).getTime();
+  const h = Math.floor(diff/3600000);
+  const m = Math.floor((diff%3600000)/60000);
+  return h > 0 ? `hace ${h}h ${m}m` : `hace ${m}m`;
+}
+
+let notifTimer = null;
+function showNotification(msg) {
+  let el = document.getElementById('notif');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'notif';
+    el.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px 18px;font-size:13px;z-index:99999;max-width:320px;transition:opacity .3s;';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  if (notifTimer) clearTimeout(notifTimer);
+  notifTimer = setTimeout(() => { el.style.opacity = '0'; }, 3500);
+}
+
+// =====================================================
+// SOCKET.IO — conecta al backend (puerto 8080)
+// Si el backend no está corriendo, sigue con datos mock
+// =====================================================
+let socket = null;
+const BACKEND_URL = `http://${location.hostname}:8080`;
+
+function initSocketIO() {
+  try {
+    socket = io(BACKEND_URL, { timeout: 3000, reconnectionAttempts: 3 });
+
+    socket.on('connect', () => {
+      console.log('[Socket.io] Conectado al backend');
+      document.getElementById('sync-dot').style.background = '#22c55e';
+      document.getElementById('sync-text').textContent = 'Backend conectado';
+      socket.emit('join:park', currentPark);
+    });
+
+    socket.on('disconnect', () => {
+      document.getElementById('sync-dot').style.background = '#ef4444';
+      document.getElementById('sync-text').textContent = 'Backend desconectado';
+    });
+
+    socket.on('connect_error', () => {
+      console.log('[Socket.io] Backend no disponible — usando datos demo');
+      socket = null;
+    });
+
+    // Snapshot inicial de trabajadores reales
+    socket.on('park:snapshot', ({ parkId, workers }) => {
+      if (parkId !== currentPark || !workers.length) return;
+      workers.forEach(w => {
+        const existing = workersData[currentPark].find(x => x.id === w.id);
+        if (existing) {
+          existing.lat    = w.last_lat;
+          existing.lng    = w.last_lng;
+          existing.status = w.status;
+        } else {
+          workersData[currentPark].push({
+            id: w.id, name: w.name, zone: w.zone_id,
+            zoneName: w.zone_name, status: w.status,
+            lat: w.last_lat, lng: w.last_lng,
+            lastSeen: w.last_seen, pendingPoints: 0,
+            battery: w.battery || 100, history: [],
+          });
+        }
+      });
+      renderMap();
+    });
+
+    // Actualización de ubicación en tiempo real
+    socket.on('location:update', (data) => {
+      if (data.parkId !== currentPark) return;
+      const worker = workersData[currentPark].find(w => w.id === data.workerId);
+      if (worker) {
+        worker.lat    = data.lat;
+        worker.lng    = data.lng;
+        worker.status = 'online';
+        if (workerMarkers[worker.id]) {
+          workerMarkers[worker.id].setLatLng([data.lat, data.lng]);
+          workerMarkers[worker.id].setIcon(getWorkerIcon(worker));
+        }
+        updateStats();
+        renderWorkerList(document.getElementById('search-input').value);
+      }
+    });
+
+    // Sync masivo recibido de un esclavo offline
+    socket.on('worker:batch-sync', (data) => {
+      if (data.parkId !== currentPark) return;
+      showNotification(`⬆ Sync recibido: ${data.count} puntos de ${data.workerId}`);
+      const worker = workersData[currentPark].find(w => w.id === data.workerId);
+      if (worker) {
+        worker.lat    = data.lastLat;
+        worker.lng    = data.lastLng;
+        worker.status = 'online';
+        worker.pendingPoints = 0;
+        renderMap();
+      }
+    });
+
+    // Cambio de estado masivo (heartbeat del servidor)
+    socket.on('workers:status-change', () => {
+      fetchWorkersFromBackend();
+    });
+
+  } catch (e) {
+    console.log('[Socket.io] No disponible, modo demo activo');
+  }
+}
+
+async function fetchWorkersFromBackend() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/workers?park=${currentPark}`);
+    if (!res.ok) return;
+    const workers = await res.json();
+    workers.forEach(w => {
+      const existing = workersData[currentPark].find(x => x.id === w.id);
+      if (existing) {
+        existing.status   = w.status;
+        existing.lat      = w.last_lat || existing.lat;
+        existing.lng      = w.last_lng || existing.lng;
+        existing.lastSeen = w.last_seen;
+      }
+    });
+    renderMap();
+  } catch (_) { /* backend no disponible */ }
+}
+
+// =====================================================
+// SERVICE WORKER (PWA)
+// =====================================================
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data?.type === 'SYNC_NOW') fetchWorkersFromBackend();
+  });
+}
+
+// =====================================================
+// BOOT
+// =====================================================
+document.addEventListener('DOMContentLoaded', () => {
+  initMap();
+  renderZoneList();
+  renderSyncQueue();
+  startLiveSimulation();
+  initSocketIO();          // intenta conectar al backend real
+});
+</script>
+</body>
+</html>

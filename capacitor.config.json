@@ -1,0 +1,42 @@
+{
+  "appId": "com.solartrack.app",
+  "appName": "SolarTrack",
+  "webDir": ".",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "Geolocation": {
+      "requestPermissions": true
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_icon_config_sample",
+      "iconColor": "#F59E0B"
+    },
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "BackgroundRunner": {
+      "label": "com.solartrack.background",
+      "src": "background.js",
+      "event": "locationSync",
+      "repeat": true,
+      "interval": 1,
+      "autoStart": true
+    }
+  },
+  "android": {
+    "allowMixedContent": true,
+    "backgroundColor": "#0f172a",
+    "buildOptions": {
+      "keystorePath": "solartrack.keystore",
+      "keystoreAlias": "solartrack"
+    }
+  },
+  "ios": {
+    "backgroundColor": "#0f172a",
+    "contentInset": "always",
+    "limitsNavigationsToAppBoundDomains": false
+  }
+}
