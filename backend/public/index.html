@@ -17,7 +17,7 @@
     :root{
       --bg:#0f172a;--card:#1e293b;--border:#334155;
       --text:#e2e8f0;--muted:#94a3b8;--solar:#f59e0b;
-      --green:#22c55e;--red:#ef4444;
+      --green:#22c55e;--red:#ef4444;--blue:#3b82f6;
     }
     body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;height:100dvh;overflow:hidden;display:flex;flex-direction:column}
 
@@ -30,7 +30,7 @@
     #conn-badge{font-size:11px;font-weight:600;white-space:nowrap}
 
     /* ── STATS BAR ── */
-    #statsbar{background:var(--card);border-bottom:1px solid var(--border);padding:8px 14px;display:flex;gap:16px;flex-shrink:0}
+    #statsbar{background:var(--card);border-bottom:1px solid var(--border);padding:8px 14px;display:flex;gap:16px;flex-shrink:0;align-items:center}
     .stat{display:flex;flex-direction:column;align-items:center}
     .stat-val{font-size:18px;font-weight:700}
     .stat-lbl{font-size:10px;color:var(--muted)}
@@ -45,7 +45,7 @@
     /* ── SIDEBAR (desktop) ── */
     #sidebar{width:300px;background:var(--card);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;transition:transform .3s}
     @media(max-width:768px){
-      #sidebar{position:absolute;bottom:0;left:0;right:0;width:100%;height:55%;border-left:none;border-top:1px solid var(--border);border-radius:16px 16px 0 0;transform:translateY(calc(100% - 48px));z-index:10}
+      #sidebar{position:absolute;bottom:0;left:0;right:0;width:100%;height:60%;border-left:none;border-top:1px solid var(--border);border-radius:16px 16px 0 0;transform:translateY(calc(100% - 48px));z-index:10}
       #sidebar.open{transform:translateY(0)}
     }
 
@@ -78,12 +78,24 @@
     #sos-alert p{color:#fca5a5;font-weight:700;font-size:14px}
     #sos-close{margin-top:6px;background:var(--red);border:none;color:#fff;padding:4px 12px;border-radius:6px;cursor:pointer;font-weight:600}
 
-    /* ── FAB (centrar mapa) ── */
-    #fab-center{position:absolute;bottom:60%;right:12px;z-index:5;width:44px;height:44px;border-radius:50%;background:var(--card);border:1px solid var(--border);cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.4)}
-    @media(max-width:768px){#fab-center{bottom:58%}}
+    /* ── MAP CONTROLS (FABs) ── */
+    #map-controls{position:absolute;bottom:calc(60% + 8px);right:12px;z-index:5;display:flex;flex-direction:column;gap:8px}
+    @media(max-width:768px){#map-controls{bottom:calc(58% + 8px)}}
+    .map-btn{width:44px;height:44px;border-radius:50%;background:var(--card);border:1px solid var(--border);cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.4);color:var(--text)}
+    .map-btn.active{background:#1d4ed8;border-color:#3b82f6;color:#fff}
 
-    /* ── ACCURACY BADGE ── */
-    .acc-badge{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px;font-weight:600;white-space:nowrap}
+    /* ── IMAGE OVERLAY PANEL ── */
+    #overlay-panel{display:none;position:absolute;top:10px;left:10px;z-index:20;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;width:260px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+    #overlay-panel.show{display:block}
+    #overlay-panel h3{font-size:13px;font-weight:700;color:var(--solar);margin-bottom:10px}
+    #overlay-panel label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;margin-top:8px}
+    #overlay-panel input[type=number]{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:6px;font-size:12px}
+    #overlay-panel input[type=file]{display:none}
+    .op-btn{width:100%;margin-top:8px;padding:8px;border-radius:8px;border:none;cursor:pointer;font-weight:600;font-size:12px}
+    .op-upload{background:var(--blue);color:#fff}
+    .op-clear{background:#334155;color:var(--muted)}
+    .op-close{position:absolute;top:10px;right:10px;background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1}
+    #overlay-opacity{width:100%;margin-top:4px;accent-color:var(--solar)}
 
     /* ── SCROLLBAR ── */
     ::-webkit-scrollbar{width:4px}
@@ -144,7 +156,33 @@
 <div id="main">
   <div id="map"></div>
 
-  <button id="fab-center" onclick="centerMap()" title="Centrar mapa">📍</button>
+  <!-- Map FAB controls -->
+  <div id="map-controls">
+    <button class="map-btn" onclick="centerMap()" title="Centrar mapa">📍</button>
+    <button class="map-btn" id="sat-btn" onclick="toggleSatellite()" title="Vista satelital">🛰️</button>
+    <button class="map-btn" id="overlay-btn" onclick="toggleOverlayPanel()" title="Imagen del parque">🗺️</button>
+  </div>
+
+  <!-- Image Overlay Panel -->
+  <div id="overlay-panel">
+    <button class="op-close" onclick="toggleOverlayPanel()">×</button>
+    <h3>🗺️ Imagen del parque</h3>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Sube una foto/screenshot de la planta para verla sobre el mapa</p>
+    <button class="op-btn op-upload" onclick="document.getElementById('img-file').click()">📁 Cargar imagen (PNG/JPG)</button>
+    <input type="file" id="img-file" accept="image/*" onchange="loadOverlayImage(this)"/>
+    <label>Latitud norte (arriba)</label>
+    <input type="number" id="ov-lat1" step="0.0001" placeholder="11.0150"/>
+    <label>Latitud sur (abajo)</label>
+    <input type="number" id="ov-lat2" step="0.0001" placeholder="11.0100"/>
+    <label>Longitud oeste (izquierda)</label>
+    <input type="number" id="ov-lng1" step="0.0001" placeholder="-74.8400"/>
+    <label>Longitud este (derecha)</label>
+    <input type="number" id="ov-lng2" step="0.0001" placeholder="-74.8350"/>
+    <label>Opacidad</label>
+    <input type="range" id="overlay-opacity" min="10" max="100" value="70" oninput="updateOpacity(this.value)"/>
+    <button class="op-btn op-upload" style="margin-top:10px" onclick="applyOverlay()">✓ Aplicar overlay</button>
+    <button class="op-btn op-clear" onclick="clearOverlay()">✕ Quitar imagen</button>
+  </div>
 
   <!-- Sidebar / Bottom Sheet -->
   <div id="sidebar">
@@ -171,20 +209,127 @@ const PARK_CENTERS = {
 let map, socket, currentPark='P1';
 let workers={}, markers={}, sosList=[], sidebarOpen=false;
 let deferredInstall=null;
+let satelliteMode=false, streetLayer, satLayer;
+let imageOverlay=null;
+
+// ── NORMALIZAR worker del servidor ──
+// El DB devuelve {id, name, lastLat, lastLng, status} — normalizamos al
+// formato interno {workerId, workerName, lat, lng, online}
+function normalizeWorker(w) {
+  return {
+    workerId:   w.workerId   || w.id   || '?',
+    workerName: w.workerName || w.name || 'Desconocido',
+    parkId:     w.parkId     || '',
+    zoneId:     w.zoneId     || '',
+    zoneName:   w.zoneName   || '',
+    lat:        w.lat        != null ? w.lat  : (w.lastLat  ?? null),
+    lng:        w.lng        != null ? w.lng  : (w.lastLng  ?? null),
+    accuracy:   w.accuracy   ?? null,
+    online:     w.online     !== undefined ? Boolean(w.online) : (w.status === 'online'),
+    lastSeen:   w.lastSeen   || null,
+    battery:    w.battery    || null,
+  };
+}
 
 // ── MAP INIT ──
 function initMap(){
   map = L.map('map',{center:PARK_CENTERS[currentPark],zoom:15,zoomControl:false});
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-    attribution:'© OpenStreetMap',maxZoom:19
-  }).addTo(map);
+
+  streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© OpenStreetMap', maxZoom:19
+  });
+  satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
+    attribution:'© Esri World Imagery', maxZoom:19
+  });
+
+  streetLayer.addTo(map);
   L.control.zoom({position:'bottomright'}).addTo(map);
+}
+
+// ── SATELLITE TOGGLE ──
+function toggleSatellite(){
+  satelliteMode = !satelliteMode;
+  const btn = document.getElementById('sat-btn');
+  if(satelliteMode){
+    map.removeLayer(streetLayer);
+    satLayer.addTo(map);
+    btn.classList.add('active');
+    btn.title = 'Vista calles';
+  } else {
+    map.removeLayer(satLayer);
+    streetLayer.addTo(map);
+    btn.classList.remove('active');
+    btn.title = 'Vista satelital';
+  }
+}
+
+// ── IMAGE OVERLAY ──
+function toggleOverlayPanel(){
+  document.getElementById('overlay-panel').classList.toggle('show');
+  document.getElementById('overlay-btn').classList.toggle('active');
+  // Pre-rellenar con bounds del parque actual
+  const c = PARK_CENTERS[currentPark];
+  const d = 0.003;
+  document.getElementById('ov-lat1').value = (c[0]+d).toFixed(4);
+  document.getElementById('ov-lat2').value = (c[0]-d).toFixed(4);
+  document.getElementById('ov-lng1').value = (c[1]-d).toFixed(4);
+  document.getElementById('ov-lng2').value = (c[1]+d).toFixed(4);
+}
+
+let overlayDataUrl = null;
+function loadOverlayImage(input){
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    overlayDataUrl = e.target.result;
+    // Guardar en localStorage por parque
+    try { localStorage.setItem('overlay_img_'+currentPark, overlayDataUrl); } catch(e){}
+    applyOverlay();
+  };
+  reader.readAsDataURL(file);
+}
+
+function applyOverlay(){
+  const lat1 = parseFloat(document.getElementById('ov-lat1').value);
+  const lat2 = parseFloat(document.getElementById('ov-lat2').value);
+  const lng1 = parseFloat(document.getElementById('ov-lng1').value);
+  const lng2 = parseFloat(document.getElementById('ov-lng2').value);
+  const imgUrl = overlayDataUrl || localStorage.getItem('overlay_img_'+currentPark);
+  if(!imgUrl){ alert('Primero carga una imagen'); return; }
+  if(isNaN(lat1)||isNaN(lat2)||isNaN(lng1)||isNaN(lng2)){ alert('Ingresa las coordenadas'); return; }
+  clearOverlay();
+  const opacity = parseInt(document.getElementById('overlay-opacity').value)/100;
+  imageOverlay = L.imageOverlay(imgUrl, [[lat2,lng1],[lat1,lng2]], {opacity}).addTo(map);
+  // Guardar bounds
+  try { localStorage.setItem('overlay_bounds_'+currentPark, JSON.stringify({lat1,lat2,lng1,lng2})); } catch(e){}
+  map.fitBounds([[lat2,lng1],[lat1,lng2]]);
+  document.getElementById('overlay-panel').classList.remove('show');
+  document.getElementById('overlay-btn').classList.remove('active');
+}
+
+function clearOverlay(){
+  if(imageOverlay){ map.removeLayer(imageOverlay); imageOverlay=null; }
+}
+
+function updateOpacity(val){
+  if(imageOverlay) imageOverlay.setOpacity(val/100);
+}
+
+function restoreOverlay(){
+  const imgUrl = localStorage.getItem('overlay_img_'+currentPark);
+  const boundsJson = localStorage.getItem('overlay_bounds_'+currentPark);
+  if(imgUrl && boundsJson){
+    const {lat1,lat2,lng1,lng2} = JSON.parse(boundsJson);
+    overlayDataUrl = imgUrl;
+    imageOverlay = L.imageOverlay(imgUrl, [[lat2,lng1],[lat1,lng2]], {opacity:0.7}).addTo(map);
+  }
 }
 
 // ── MARKERS ──
 function workerIcon(w){
   const color = w.online ? '#22c55e' : '#ef4444';
-  const initials = (w.workerName||'?').split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase();
+  const initials = (w.workerName||'?').split(' ').map(x=>x[0]||'').join('').slice(0,2).toUpperCase()||'?';
   return L.divIcon({
     className:'',
     html:`<div style="background:${color};width:36px;height:36px;border-radius:50%;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:#000;box-shadow:0 2px 6px rgba(0,0,0,.4)">${initials}</div>`,
@@ -193,17 +338,16 @@ function workerIcon(w){
 }
 
 function updateMarker(w){
-  if(!w.lat||!w.lng) return;
+  if(w.lat == null || w.lng == null) return;
   const pos=[w.lat,w.lng];
-  if(markers[w.workerId]){
-    markers[w.workerId].setLatLng(pos).setIcon(workerIcon(w));
+  const wid=w.workerId;
+  if(markers[wid]){
+    markers[wid].setLatLng(pos).setIcon(workerIcon(w));
   } else {
-    markers[w.workerId]=L.marker(pos,{icon:workerIcon(w)})
-      .addTo(map)
-      .bindPopup(`<b>${w.workerName}</b><br>${w.zoneName||''}<br>Precisión: ${Math.round(w.accuracy||0)}m`);
+    markers[wid]=L.marker(pos,{icon:workerIcon(w)}).addTo(map);
   }
-  markers[w.workerId].getPopup()?.setContent(
-    `<b>${w.workerName}</b><br>${w.zoneName||''}<br>📍 ${w.lat?.toFixed(5)}, ${w.lng?.toFixed(5)}<br>Precisión: ${Math.round(w.accuracy||0)}m`
+  markers[wid].bindPopup(
+    `<b>${w.workerName}</b><br>${w.zoneName||''}<br>📍 ${w.lat.toFixed(5)}, ${w.lng.toFixed(5)}<br>Precisión: ${Math.round(w.accuracy||0)}m<br>${w.online?'🟢 En línea':'🔴 Offline'}`
   );
 }
 
@@ -214,7 +358,10 @@ function renderWorkers(){
   const list=document.getElementById('worker-list');
   const all=Object.values(workers).sort((a,b)=>(b.online?1:0)-(a.online?1:0));
   if(!all.length){
-    list.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Sin trabajadores conectados.<br>Esperando señal GPS...</div>';
+    list.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Sin trabajadores conectados.<br>Esperando datos GPS...</div>';
+    document.getElementById('stat-online').textContent='0';
+    document.getElementById('stat-offline').textContent='0';
+    document.getElementById('stat-total').textContent='0';
     return;
   }
   list.innerHTML=all.map(w=>`
@@ -234,7 +381,7 @@ function renderWorkers(){
 
 function focusWorker(id){
   const w=workers[id];
-  if(w?.lat&&w?.lng){ map.setView([w.lat,w.lng],17,{animate:true}); markers[id]?.openPopup(); }
+  if(w?.lat!=null&&w?.lng!=null){ map.setView([w.lat,w.lng],17,{animate:true}); markers[id]?.openPopup(); }
   if(window.innerWidth<=768) toggleSidebar(false);
 }
 
@@ -264,24 +411,32 @@ function initSocket(){
   });
 
   socket.on('park:snapshot',({workers:ws})=>{
-    ws.forEach(w=>{ workers[w.workerId||w.id]=w; updateMarker(w); });
+    ws.forEach(raw=>{
+      const w=normalizeWorker(raw);
+      workers[w.workerId]=w;
+      updateMarker(w);
+    });
     renderWorkers();
   });
 
   socket.on('location:update',(data)=>{
-    workers[data.workerId]={...workers[data.workerId],...data,online:true,lastSeen:new Date().toISOString()};
-    updateMarker(workers[data.workerId]);
+    const w=normalizeWorker({...workers[data.workerId||data.id]||{}, ...data, online:true, lastSeen:new Date().toISOString()});
+    workers[w.workerId]=w;
+    updateMarker(w);
     renderWorkers();
     document.getElementById('stat-time').textContent=new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
-    if(data.isSOS) showSOS(data);
+    if(data.isSOS) showSOS(normalizeWorker(data));
   });
 
   socket.on('workers:status-change',()=>loadWorkers());
+
   socket.on('worker:batch-sync',(data)=>{
-    if(data.lastLat&&data.lastLng){
-      workers[data.workerId]={...workers[data.workerId],...data,lat:data.lastLat,lng:data.lastLng,online:true,lastSeen:new Date().toISOString()};
-      updateMarker(workers[data.workerId]);
+    if(data.lastLat!=null&&data.lastLng!=null){
+      const w=normalizeWorker({...workers[data.workerId||data.id]||{}, ...data, lat:data.lastLat, lng:data.lastLng, online:true, lastSeen:new Date().toISOString()});
+      workers[w.workerId]=w;
+      updateMarker(w);
       renderWorkers();
+      document.getElementById('stat-time').textContent=new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
     }
   });
 }
@@ -291,19 +446,24 @@ async function loadWorkers(){
     const r=await fetch(`${BACKEND}/workers?park=${currentPark}`);
     if(!r.ok) return;
     const ws=await r.json();
-    ws.forEach(w=>{ workers[w.workerId||w.id]=w; updateMarker(w); });
+    ws.forEach(raw=>{
+      const w=normalizeWorker(raw);
+      workers[w.workerId]=w;
+      updateMarker(w);
+    });
     renderWorkers();
-  }catch(e){}
+  }catch(e){ console.warn('[loadWorkers]',e.message); }
 }
 
 // ── SOS ──
 function showSOS(data){
   const alert=document.getElementById('sos-alert');
-  document.getElementById('sos-text').textContent=`🆘 EMERGENCIA — ${data.workerName} necesita ayuda!`;
+  document.getElementById('sos-text').textContent=`🆘 EMERGENCIA — ${data.workerName||data.workerName} necesita ayuda!`;
   alert.classList.add('show');
   sosList.unshift({...data,ts:new Date().toISOString()});
   renderSOSList();
   try{navigator.vibrate&&navigator.vibrate([400,200,400,200,400])}catch(e){}
+  try{new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAA').play()}catch(e){}
 }
 function closeSOS(){ document.getElementById('sos-alert').classList.remove('show'); }
 function renderSOSList(){
@@ -311,22 +471,25 @@ function renderSOSList(){
   if(!sosList.length){el.innerHTML='<p style="color:var(--muted);font-size:13px;text-align:center;margin-top:20px">Sin alertas de emergencia</p>';return;}
   el.innerHTML=sosList.map(s=>`
     <div style="background:#450a0a;border:1px solid var(--red);border-radius:10px;padding:12px;margin-bottom:10px">
-      <p style="color:#fca5a5;font-weight:700">🆘 ${s.workerName}</p>
+      <p style="color:#fca5a5;font-weight:700">🆘 ${s.workerName||'Trabajador'}</p>
       <p style="color:var(--muted);font-size:12px;margin-top:4px">${new Date(s.ts).toLocaleString('es-CO')}</p>
-      <p style="color:var(--muted);font-size:12px">📍 ${s.lat?.toFixed(5)}, ${s.lng?.toFixed(5)}</p>
+      <p style="color:var(--muted);font-size:12px">📍 ${s.lat?.toFixed(5)??'--'}, ${s.lng?.toFixed(5)??'--'}</p>
     </div>`).join('');
 }
 
 // ── PARK SWITCH ──
 function switchPark(p){
+  const prev=currentPark;
   currentPark=p;
+  clearOverlay();
   Object.keys(markers).forEach(removeMarker);
   workers={};
   renderWorkers();
   map.setView(PARK_CENTERS[p],15,{animate:true});
-  socket?.emit('leave:park',currentPark);
+  socket?.emit('leave:park',prev);
   socket?.emit('join:park',p);
   loadWorkers();
+  restoreOverlay();
 }
 
 // ── SIDEBAR ──
@@ -348,7 +511,7 @@ function switchTab(tab,btn){
 
 // ── CENTER MAP ──
 function centerMap(){
-  const online=Object.values(workers).filter(w=>w.online&&w.lat);
+  const online=Object.values(workers).filter(w=>w.online&&w.lat!=null);
   if(online.length){
     const lats=online.map(w=>w.lat), lngs=online.map(w=>w.lng);
     map.fitBounds([[Math.min(...lats),Math.min(...lngs)],[Math.max(...lats),Math.max(...lngs)]],{padding:[40,40]});
@@ -381,6 +544,7 @@ initMap();
 initSocket();
 renderWorkers();
 renderSOSList();
+restoreOverlay();
 // Polling cada 15s para asegurar datos actualizados
 setInterval(loadWorkers, 15000);
 </script>

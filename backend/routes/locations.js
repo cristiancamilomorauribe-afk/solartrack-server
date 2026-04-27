@@ -37,31 +37,38 @@ router.post('/', async (req, res) => {
 // POST /batch — lote offline
 router.post('/batch', async (req, res) => {
   try {
-    const { workerId, parkId, locations } = req.body;
+    const { workerId, workerName, parkId, zoneId, zoneName, locations } = req.body;
     if (!workerId || !parkId || !Array.isArray(locations)) {
       return res.status(400).json({ error: 'Formato: {workerId, parkId, locations:[]}' });
     }
 
-    const count = await db.insertBatch(workerId, parkId, locations);
-    db.insertSyncLog('from_slave', parkId, count, 'ok', `Worker ${workerId} sync ${count} pts`);
+    const count = await db.insertBatch(workerId, workerName, parkId, zoneId, zoneName, locations);
+    db.insertSyncLog('from_slave', parkId, count, 'ok', `Worker ${workerName||workerId} sync ${count} pts`);
 
     const io = req.app.get('io');
     if (io && locations.length > 0) {
       const last = locations[locations.length - 1];
+      const wName = workerName || last.workerName || workerId;
+      const zName = zoneName   || last.zoneName   || '';
+      const zId   = zoneId     || last.zoneId     || '';
       // Emitir location:update con la última posición conocida
       io.to(`park:${parkId}`).emit('location:update', {
         workerId,
-        workerName: last.workerName || workerId,
+        workerName: wName,
         parkId,
-        zoneId:   last.zoneId || '',
-        zoneName: last.zoneName || '',
+        zoneId:   zId,
+        zoneName: zName,
         lat:      last.lat,
         lng:      last.lng,
         accuracy: last.accuracy || 0,
         ts:       last.ts || new Date().toISOString(),
+        online:   true,
         synced:   true,
       });
-      io.to(`park:${parkId}`).emit('worker:batch-sync', { workerId, parkId, count, lastLat: last.lat, lastLng: last.lng, lastTs: last.ts });
+      io.to(`park:${parkId}`).emit('worker:batch-sync', {
+        workerId, workerName: wName, parkId, count,
+        lastLat: last.lat, lastLng: last.lng, lastTs: last.ts
+      });
     }
 
     res.json({ ok: true, inserted: count });

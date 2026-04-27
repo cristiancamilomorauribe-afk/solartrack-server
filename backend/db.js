@@ -97,14 +97,24 @@ function insertLocation(record) {
 /**
  * Inserta un lote de ubicaciones (sync offline)
  */
-function insertBatch(workerId, parkId, locations) {
+function insertBatch(workerId, workerName, parkId, zoneId, zoneName, locations) {
+  // Soporte retrocompatible: si se llama con 3 args (workerId, parkId, locations)
+  if (Array.isArray(parkId)) {
+    locations  = parkId;
+    parkId     = workerName;
+    workerName = null;
+    zoneId     = null;
+    zoneName   = null;
+  }
+
   return new Promise((resolve, reject) => {
+    const wName = workerName || 'Desconocido';
     const docs = locations.map(loc => ({
       workerId,
-      workerName:  loc.workerName || 'Desconocido',
+      workerName:  wName,
       parkId,
-      zoneId:      loc.zoneId || null,
-      zoneName:    loc.zoneName || null,
+      zoneId:      zoneId || loc.zoneId || null,
+      zoneName:    zoneName || loc.zoneName || null,
       lat:         loc.lat,
       lng:         loc.lng,
       accuracy:    loc.accuracy || null,
@@ -124,15 +134,15 @@ function insertBatch(workerId, parkId, locations) {
         db.workers.update(
           { id: workerId },
           { $set: {
-            id: workerId,
-            name:     last.workerName || 'Desconocido',
+            id:       workerId,
+            name:     wName,
             parkId,
-            zoneId:   last.zoneId || '',
-            zoneName: last.zoneName || '',
+            zoneId:   zoneId || last.zoneId || '',
+            zoneName: zoneName || last.zoneName || '',
             status:   'online',
             lastLat:  last.lat,
             lastLng:  last.lng,
-            lastSeen: last.ts,
+            lastSeen: last.ts || new Date().toISOString(),
             battery:  last.battery || null,
           }},
           { upsert: true },
