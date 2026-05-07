@@ -248,142 +248,186 @@ function switchOverlayTab(tab){
 }
 
 // ── KMZ / KML SUPPORT ──
-async function loadKMZFile(input){
-  const file=input.files[0];
-  if(!file) return;
-  try{
-    let kmlText;
-    if(file.name.toLowerCase().endsWith('.kmz')){
-      // KMZ = ZIP que contiene un .kml
-      const ab=await file.arrayBuffer();
-      const zip=await JSZip.loadAsync(ab);
-      const kmlEntry=Object.values(zip.files).find(f=>f.name.toLowerCase().endsWith('.kml'));
-      if(!kmlEntry){ alert('No se encontró archivo KML dentro del KMZ'); return; }
-      kmlText=await kmlEntry.async('text');
-    } else {
-      kmlText=await file.text();
-    }
-    renderKML(kmlText, file.name);
-    // Guardar en localStorage
-    try{ localStorage.setItem('kmz_kml_'+currentPark, kmlText); localStorage.setItem('kmz_name_'+currentPark, file.name); }catch(e){}
-  }catch(e){
-    alert('Error al leer el archivo: '+e.message);
-  }
-  input.value=''; // reset para poder cargar el mismo archivo de nuevo
-}
 
-function renderKML(kmlText, fileName){
-  clearKMZ();
-  const parser=new DOMParser();
-  const doc=parser.parseFromString(kmlText,'text/xml');
-
-  // Parsear estilos
-  const styles={};
-  doc.querySelectorAll('Style[id]').forEach(s=>{
-    const id=s.getAttribute('id');
-    const lc=s.querySelector('LineStyle > color')?.textContent;
-    const pc=s.querySelector('PolyStyle > color')?.textContent;
-    const fill=s.querySelector('PolyStyle > fill')?.textContent;
-    styles[id]={
-      lineColor: kmlColor(lc) || '#f59e0b',
-      fillColor: kmlColor(pc) || '#f59e0b',
-      fillOpacity: fill==='0' ? 0 : 0.25,
-    };
-  });
-  // StyleMap → apuntan a estilos normales
-  doc.querySelectorAll('StyleMap[id]').forEach(sm=>{
-    const id=sm.getAttribute('id');
-    const normalUrl=sm.querySelector('Pair:first-child styleUrl')?.textContent?.replace('#','') ||
-                    [...sm.querySelectorAll('Pair')].find(p=>p.querySelector('key')?.textContent==='normal')?.querySelector('styleUrl')?.textContent?.replace('#','');
-    if(normalUrl && styles[normalUrl]) styles[id]=styles[normalUrl];
-  });
-
-  const layers=[];
-  doc.querySelectorAll('Placemark').forEach(pm=>{
-    const name=(pm.querySelector('name')?.textContent||'').trim();
-    const desc=(pm.querySelector('description')?.textContent||'').trim();
-    const styleUrl=pm.querySelector('styleUrl')?.textContent?.replace(/^#/,'');
-    const st=styles[styleUrl]||{lineColor:'#f59e0b',fillColor:'#f59e0b',fillOpacity:0.2};
-    const popup=`<b>${name||'Zona'}</b>${desc?'<br><small>'+desc+'</small>':''}`;
-
-    // Polígono
-    pm.querySelectorAll('Polygon').forEach(poly=>{
-      const outer=poly.querySelector('outerBoundaryIs coordinates');
-      const coords=parseKMLCoords(outer?.textContent);
-      if(coords.length>2){
-        layers.push(L.polygon(coords,{color:st.lineColor,fillColor:st.fillColor,fillOpacity:st.fillOpacity,weight:2}).bindPopup(popup));
-      }
-      // Huecos (innerBoundaryIs)
-      poly.querySelectorAll('innerBoundaryIs coordinates').forEach(inner=>{
-        const holeCoords=parseKMLCoords(inner.textContent);
-        if(holeCoords.length>2) layers.push(L.polygon([holeCoords],{color:st.lineColor,fillColor:'transparent',fillOpacity:0,weight:1,dashArray:'4'}));
-      });
-    });
-
-    // MultiGeometry → polígonos múltiples
-    pm.querySelectorAll('MultiGeometry Polygon').forEach(poly=>{
-      const outer=poly.querySelector('outerBoundaryIs coordinates');
-      const coords=parseKMLCoords(outer?.textContent);
-      if(coords.length>2) layers.push(L.polygon(coords,{color:st.lineColor,fillColor:st.fillColor,fillOpacity:st.fillOpacity,weight:2}).bindPopup(popup));
-    });
-
-    // Línea
-    pm.querySelectorAll('LineString,MultiGeometry LineString').forEach(ls=>{
-      const coords=parseKMLCoords(ls.querySelector('coordinates')?.textContent);
-      if(coords.length>1) layers.push(L.polyline(coords,{color:st.lineColor,weight:2.5}).bindPopup(popup));
-    });
-
-    // Punto
-    pm.querySelectorAll('Point').forEach(pt=>{
-      const c=(pt.querySelector('coordinates')?.textContent||'').trim().split(',');
-      const lat=parseFloat(c[1]), lng=parseFloat(c[0]);
-      if(!isNaN(lat)&&!isNaN(lng)){
-        const icon=L.divIcon({className:'',html:`<div style="background:#f59e0b;width:10px;height:10px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>`,iconSize:[10,10],iconAnchor:[5,5]});
-        layers.push(L.marker([lat,lng],{icon}).bindPopup(popup));
-      }
-    });
-  });
-
-  if(!layers.length){ alert('No se encontraron elementos cartográficos en el archivo.'); return; }
-
-  kmzLayer=L.layerGroup(layers).addTo(map);
-  const fg=L.featureGroup(layers);
-  if(fg.getBounds().isValid()) map.fitBounds(fg.getBounds(),{padding:[30,30]});
-
-  const st=document.getElementById('kmz-status');
-  st.textContent=`✅ ${fileName} — ${layers.length} elementos cargados`;
-  st.classList.add('show');
-  document.getElementById('overlay-panel').classList.remove('show');
-  document.getElementById('overlay-btn').classList.remove('active');
-}
+// Ayudante: getElementsByTagName funciona con namespaces XML; querySelectorAll no siempre
+function gbt(node,tag){ return [...node.getElementsByTagName(tag)]; }
+function gbt1(node,tag){ return node.getElementsByTagName(tag)[0]; }
+function txt(node,tag){ return gbt1(node,tag)?.textContent?.trim()||''; }
 
 function parseKMLCoords(text){
   if(!text) return [];
   return text.trim().split(/\s+/).map(c=>{
     const p=c.split(',');
-    const lat=parseFloat(p[1]), lng=parseFloat(p[0]);
-    return (!isNaN(lat)&&!isNaN(lng)) ? [lat,lng] : null;
+    const lat=parseFloat(p[1]),lng=parseFloat(p[0]);
+    return(!isNaN(lat)&&!isNaN(lng))?[lat,lng]:null;
   }).filter(Boolean);
 }
 
 function kmlColor(kml){
-  // KML: aabbggrr (alpha-blue-green-red)
+  // KML: aabbggrr → #rrggbb
   if(!kml||kml.length<6) return null;
-  const r=kml.slice(-2), g=kml.slice(-4,-2), b=kml.slice(-6,-4);
-  return '#'+r+g+b;
+  const s=kml.replace(/^0x/i,'').padStart(8,'0');
+  return '#'+s.slice(6,8)+s.slice(4,6)+s.slice(2,4);
+}
+
+function parseStyles(doc){
+  const styles={};
+  for(const s of gbt(doc,'Style')){
+    const id=s.getAttribute('id'); if(!id) continue;
+    const lc=txt(gbt1(s,'LineStyle')||s,'color');
+    const ls=gbt1(s,'LineStyle'); const ps=gbt1(s,'PolyStyle');
+    styles[id]={
+      lineColor: ls ? kmlColor(txt(ls,'color'))||'#f59e0b' : '#f59e0b',
+      fillColor: ps ? kmlColor(txt(ps,'color'))||'#f59e0b' : '#f59e0b',
+      fillOpacity: ps && txt(ps,'fill')==='0' ? 0 : 0.22,
+    };
+  }
+  for(const sm of gbt(doc,'StyleMap')){
+    const id=sm.getAttribute('id'); if(!id) continue;
+    for(const pair of gbt(sm,'Pair')){
+      if(txt(pair,'key')==='normal'){
+        const su=txt(pair,'styleUrl').replace(/^#/,'');
+        if(su&&styles[su]) styles[id]=styles[su];
+      }
+    }
+  }
+  return styles;
+}
+
+async function loadKMZFile(input){
+  const file=input.files[0]; if(!file) return;
+  const statusEl=document.getElementById('kmz-status');
+  statusEl.textContent='⏳ Cargando archivo…'; statusEl.classList.add('show');
+  try{
+    let kmlText, zip=null;
+    if(file.name.toLowerCase().endsWith('.kmz')){
+      const ab=await file.arrayBuffer();
+      zip=await JSZip.loadAsync(ab);
+      const kmlEntry=Object.values(zip.files).find(f=>f.name.toLowerCase().endsWith('.kml'));
+      if(!kmlEntry){ alert('No se encontró archivo KML dentro del KMZ'); statusEl.classList.remove('show'); return; }
+      kmlText=await kmlEntry.async('text');
+    } else {
+      kmlText=await file.text();
+    }
+    await renderKML(kmlText, file.name, zip);
+    try{ localStorage.setItem('kmz_kml_'+currentPark,kmlText); localStorage.setItem('kmz_name_'+currentPark,file.name); }catch(e){}
+  }catch(e){
+    alert('Error al leer el archivo: '+e.message);
+    statusEl.classList.remove('show');
+  }
+  input.value='';
+}
+
+async function renderKML(kmlText, fileName, zip){
+  clearKMZ();
+  const parser=new DOMParser();
+  const doc=parser.parseFromString(kmlText,'text/xml');
+  const styles=parseStyles(doc);
+  const layers=[];
+
+  // ── 1. GroundOverlay (fotos aéreas / ortomosaicos de Pix4D) ──
+  let goCount=0;
+  const MAX_GO=50; // limitar tiles para no saturar el navegador
+  const allGO=gbt(doc,'GroundOverlay');
+  // Priorizar tiles de baja resolución (L1, L2, L3) → prefijo en nombre del archivo
+  const prioritize=e=>{
+    const hr=txt(gbt1(e,'Icon')||e,'href');
+    if(hr.includes('_L1_'))return 0;
+    if(hr.includes('_L2_'))return 1;
+    if(hr.includes('_L3_'))return 2;
+    if(hr.includes('_L4_'))return 3;
+    return 4;
+  };
+  const sortedGO=[...allGO].sort((a,b)=>prioritize(a)-prioritize(b));
+
+  for(const go of sortedGO){
+    if(goCount>=MAX_GO) break;
+    const llb=gbt1(go,'LatLonBox'); if(!llb) continue;
+    const n=parseFloat(txt(llb,'north')), s=parseFloat(txt(llb,'south'));
+    const e=parseFloat(txt(llb,'east')),  w=parseFloat(txt(llb,'west'));
+    if(isNaN(n)||isNaN(s)||isNaN(e)||isNaN(w)) continue;
+    const href=txt(gbt1(go,'Icon')||go,'href');
+    const name=txt(go,'name')||'Foto aérea';
+
+    if(zip&&href&&zip.files[href]){
+      try{
+        const blob=await zip.files[href].async('blob');
+        const url=URL.createObjectURL(blob);
+        layers.push(L.imageOverlay(url,[[s,w],[n,e]],{opacity:0.85,interactive:false}));
+        goCount++;
+      }catch(_){}
+    } else {
+      // Sin imagen → rectángulo de contorno
+      layers.push(L.rectangle([[s,w],[n,e]],{color:'#f59e0b',weight:1,fillOpacity:0.08,dashArray:'4'}).bindPopup(`<b>${name}</b>`));
+      goCount++;
+    }
+  }
+
+  // ── 2. NetworkLink → mostrar área cubierta como rectángulo ──
+  const nlBounds={n:-90,s:90,e:-180,w:180};let hasNL=false;
+  for(const nl of gbt(doc,'NetworkLink')){
+    const llab=gbt1(nl,'LatLonAltBox')||gbt1(nl,'LatLonBox'); if(!llab) continue;
+    const n=parseFloat(txt(llab,'north')), s=parseFloat(txt(llab,'south'));
+    const e=parseFloat(txt(llab,'east')),  w=parseFloat(txt(llab,'west'));
+    if(isNaN(n)||isNaN(s)||isNaN(e)||isNaN(w)) continue;
+    nlBounds.n=Math.max(nlBounds.n,n); nlBounds.s=Math.min(nlBounds.s,s);
+    nlBounds.e=Math.max(nlBounds.e,e); nlBounds.w=Math.min(nlBounds.w,w);
+    hasNL=true;
+  }
+  if(hasNL){
+    layers.push(L.rectangle([[nlBounds.s,nlBounds.w],[nlBounds.n,nlBounds.e]],{
+      color:'#f59e0b',weight:2,fillColor:'#f59e0b',fillOpacity:0.08
+    }).bindPopup(`<b>${fileName.replace('.kmz','')}</b><br>Área del parque`));
+  }
+
+  // ── 3. Placemarks (polígonos, líneas, puntos) ──
+  const dotIcon=L.divIcon({className:'',html:'<div style="background:#f59e0b;width:10px;height:10px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>',iconSize:[10,10],iconAnchor:[5,5]});
+  for(const pm of gbt(doc,'Placemark')){
+    const name=(txt(pm,'name')||'').replace(/<[^>]+>/g,'');
+    const desc=(txt(pm,'description')||'').replace(/<[^>]+>/g,'').slice(0,200);
+    const su=(txt(pm,'styleUrl')||'').replace(/^#/,'');
+    const st=styles[su]||{lineColor:'#f59e0b',fillColor:'#f59e0b',fillOpacity:0.22};
+    const popup=`<b>${name||'Elemento'}</b>${desc?'<br><small>'+desc+'</small>':''}`;
+
+    for(const poly of gbt(pm,'Polygon')){
+      const outer=gbt1(poly,'outerBoundaryIs');
+      const coords=parseKMLCoords(txt(outer||poly,'coordinates'));
+      if(coords.length>2) layers.push(L.polygon(coords,{color:st.lineColor,fillColor:st.fillColor,fillOpacity:st.fillOpacity,weight:2}).bindPopup(popup));
+    }
+    for(const ls of gbt(pm,'LineString')){
+      const coords=parseKMLCoords(txt(ls,'coordinates'));
+      if(coords.length>1) layers.push(L.polyline(coords,{color:st.lineColor,weight:2.5}).bindPopup(popup));
+    }
+    for(const pt of gbt(pm,'Point')){
+      const c=(txt(pt,'coordinates')).split(',');
+      const lat=parseFloat(c[1]),lng=parseFloat(c[0]);
+      if(!isNaN(lat)&&!isNaN(lng)) layers.push(L.marker([lat,lng],{icon:dotIcon}).bindPopup(popup));
+    }
+  }
+
+  if(!layers.length){ alert('No se encontraron elementos cartográficos.\n\nEste KMZ puede contener datos que requieren conexión a internet (NetworkLinks externos).'); return; }
+
+  kmzLayer=L.layerGroup(layers).addTo(map);
+  const fg=L.featureGroup(layers.filter(l=>l.getBounds));
+  try{ if(fg.getBounds().isValid()) map.fitBounds(fg.getBounds(),{padding:[30,30]}); }catch(_){}
+
+  const statusEl=document.getElementById('kmz-status');
+  statusEl.textContent=`✅ ${fileName} — ${layers.length} elementos`;
+  statusEl.classList.add('show');
+  document.getElementById('overlay-panel').classList.remove('show');
+  document.getElementById('overlay-btn').classList.remove('active');
 }
 
 function clearKMZ(){
   if(kmzLayer){ map.removeLayer(kmzLayer); kmzLayer=null; }
   const st=document.getElementById('kmz-status');
-  st.textContent='';
-  st.classList.remove('show');
+  st.textContent=''; st.classList.remove('show');
 }
 
-function restoreKMZ(){
+async function restoreKMZ(){
   const kmlText=localStorage.getItem('kmz_kml_'+currentPark);
   const name=localStorage.getItem('kmz_name_'+currentPark)||'parque.kmz';
-  if(kmlText) renderKML(kmlText,name);
+  if(kmlText) await renderKML(kmlText,name,null); // sin ZIP → sin imágenes embed, muestra rectángulos
 }
 
 // ── NORMALIZAR worker del servidor ──
@@ -723,7 +767,7 @@ initSocket();
 renderWorkers();
 renderSOSList();
 restoreOverlay();
-restoreKMZ();
+restoreKMZ(); // async, no bloqueante
 // Polling cada 15s para asegurar datos actualizados
 setInterval(loadWorkers, 15000);
 </script>
