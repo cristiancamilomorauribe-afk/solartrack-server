@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     :root{
@@ -84,18 +85,24 @@
     .map-btn{width:44px;height:44px;border-radius:50%;background:var(--card);border:1px solid var(--border);cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.4);color:var(--text)}
     .map-btn.active{background:#1d4ed8;border-color:#3b82f6;color:#fff}
 
-    /* ── IMAGE OVERLAY PANEL ── */
-    #overlay-panel{display:none;position:absolute;top:10px;left:10px;z-index:20;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;width:260px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+    /* ── MAP OVERLAY PANEL ── */
+    #overlay-panel{display:none;position:absolute;top:10px;left:10px;z-index:20;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;width:270px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
     #overlay-panel.show{display:block}
     #overlay-panel h3{font-size:13px;font-weight:700;color:var(--solar);margin-bottom:10px}
     #overlay-panel label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;margin-top:8px}
     #overlay-panel input[type=number]{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:6px;font-size:12px}
     #overlay-panel input[type=file]{display:none}
-    .op-btn{width:100%;margin-top:8px;padding:8px;border-radius:8px;border:none;cursor:pointer;font-weight:600;font-size:12px}
+    .op-btn{width:100%;margin-top:8px;padding:9px;border-radius:8px;border:none;cursor:pointer;font-weight:600;font-size:12px}
     .op-upload{background:var(--blue);color:#fff}
     .op-clear{background:#334155;color:var(--muted)}
     .op-close{position:absolute;top:10px;right:10px;background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1}
     #overlay-opacity{width:100%;margin-top:4px;accent-color:var(--solar)}
+    /* overlay tabs */
+    .op-tabs{display:flex;gap:4px;margin-bottom:10px}
+    .op-tab{flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer}
+    .op-tab.active{background:var(--blue);border-color:var(--blue);color:#fff}
+    #kmz-status{font-size:11px;color:var(--green);margin-top:6px;word-break:break-all;display:none}
+    #kmz-status.show{display:block}
 
     /* ── SCROLLBAR ── */
     ::-webkit-scrollbar{width:4px}
@@ -163,25 +170,42 @@
     <button class="map-btn" id="overlay-btn" onclick="toggleOverlayPanel()" title="Imagen del parque">🗺️</button>
   </div>
 
-  <!-- Image Overlay Panel -->
+  <!-- Map Overlay Panel -->
   <div id="overlay-panel">
     <button class="op-close" onclick="toggleOverlayPanel()">×</button>
-    <h3>🗺️ Imagen del parque</h3>
-    <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Sube una foto/screenshot de la planta para verla sobre el mapa</p>
-    <button class="op-btn op-upload" onclick="document.getElementById('img-file').click()">📁 Cargar imagen (PNG/JPG)</button>
-    <input type="file" id="img-file" accept="image/*" onchange="loadOverlayImage(this)"/>
-    <label>Latitud norte (arriba)</label>
-    <input type="number" id="ov-lat1" step="0.0001" placeholder="11.0150"/>
-    <label>Latitud sur (abajo)</label>
-    <input type="number" id="ov-lat2" step="0.0001" placeholder="11.0100"/>
-    <label>Longitud oeste (izquierda)</label>
-    <input type="number" id="ov-lng1" step="0.0001" placeholder="-74.8400"/>
-    <label>Longitud este (derecha)</label>
-    <input type="number" id="ov-lng2" step="0.0001" placeholder="-74.8350"/>
-    <label>Opacidad</label>
-    <input type="range" id="overlay-opacity" min="10" max="100" value="70" oninput="updateOpacity(this.value)"/>
-    <button class="op-btn op-upload" style="margin-top:10px" onclick="applyOverlay()">✓ Aplicar overlay</button>
-    <button class="op-btn op-clear" onclick="clearOverlay()">✕ Quitar imagen</button>
+    <h3>🗺️ Mapa del parque</h3>
+    <div class="op-tabs">
+      <button class="op-tab active" id="tab-kmz" onclick="switchOverlayTab('kmz')">📌 KMZ / KML</button>
+      <button class="op-tab" id="tab-img" onclick="switchOverlayTab('img')">🖼️ Imagen</button>
+    </div>
+
+    <!-- KMZ tab -->
+    <div id="op-kmz">
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Carga el archivo KMZ de la planta — se ubica automáticamente en el mapa con sus coordenadas reales.</p>
+      <button class="op-btn op-upload" onclick="document.getElementById('kmz-file').click()">📁 Cargar archivo KMZ</button>
+      <input type="file" id="kmz-file" accept=".kmz,.kml" onchange="loadKMZFile(this)"/>
+      <div id="kmz-status"></div>
+      <button class="op-btn op-clear" style="margin-top:6px" onclick="clearKMZ()">✕ Quitar KMZ del mapa</button>
+    </div>
+
+    <!-- Imagen tab -->
+    <div id="op-img" style="display:none">
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Sube una foto/screenshot de la planta e ingresa las coordenadas de sus bordes.</p>
+      <button class="op-btn op-upload" onclick="document.getElementById('img-file').click()">📁 Cargar imagen (PNG/JPG)</button>
+      <input type="file" id="img-file" accept="image/*" onchange="loadOverlayImage(this)"/>
+      <label>Latitud norte (arriba)</label>
+      <input type="number" id="ov-lat1" step="0.0001" placeholder="11.0150"/>
+      <label>Latitud sur (abajo)</label>
+      <input type="number" id="ov-lat2" step="0.0001" placeholder="11.0100"/>
+      <label>Longitud oeste (izquierda)</label>
+      <input type="number" id="ov-lng1" step="0.0001" placeholder="-74.8400"/>
+      <label>Longitud este (derecha)</label>
+      <input type="number" id="ov-lng2" step="0.0001" placeholder="-74.8350"/>
+      <label>Opacidad</label>
+      <input type="range" id="overlay-opacity" min="10" max="100" value="70" oninput="updateOpacity(this.value)"/>
+      <button class="op-btn op-upload" style="margin-top:8px" onclick="applyOverlay()">✓ Aplicar imagen</button>
+      <button class="op-btn op-clear" onclick="clearOverlay()">✕ Quitar imagen</button>
+    </div>
   </div>
 
   <!-- Sidebar / Bottom Sheet -->
@@ -211,6 +235,156 @@ let workers={}, markers={}, sosList=[], sidebarOpen=false;
 let deferredInstall=null;
 let satelliteMode=false, streetLayer, satLayer;
 let imageOverlay=null;
+let kmzLayer=null;
+let activeOverlayTab='kmz';
+
+// ── OVERLAY TABS ──
+function switchOverlayTab(tab){
+  activeOverlayTab=tab;
+  document.getElementById('op-kmz').style.display=tab==='kmz'?'block':'none';
+  document.getElementById('op-img').style.display=tab==='img'?'block':'none';
+  document.getElementById('tab-kmz').classList.toggle('active',tab==='kmz');
+  document.getElementById('tab-img').classList.toggle('active',tab==='img');
+}
+
+// ── KMZ / KML SUPPORT ──
+async function loadKMZFile(input){
+  const file=input.files[0];
+  if(!file) return;
+  try{
+    let kmlText;
+    if(file.name.toLowerCase().endsWith('.kmz')){
+      // KMZ = ZIP que contiene un .kml
+      const ab=await file.arrayBuffer();
+      const zip=await JSZip.loadAsync(ab);
+      const kmlEntry=Object.values(zip.files).find(f=>f.name.toLowerCase().endsWith('.kml'));
+      if(!kmlEntry){ alert('No se encontró archivo KML dentro del KMZ'); return; }
+      kmlText=await kmlEntry.async('text');
+    } else {
+      kmlText=await file.text();
+    }
+    renderKML(kmlText, file.name);
+    // Guardar en localStorage
+    try{ localStorage.setItem('kmz_kml_'+currentPark, kmlText); localStorage.setItem('kmz_name_'+currentPark, file.name); }catch(e){}
+  }catch(e){
+    alert('Error al leer el archivo: '+e.message);
+  }
+  input.value=''; // reset para poder cargar el mismo archivo de nuevo
+}
+
+function renderKML(kmlText, fileName){
+  clearKMZ();
+  const parser=new DOMParser();
+  const doc=parser.parseFromString(kmlText,'text/xml');
+
+  // Parsear estilos
+  const styles={};
+  doc.querySelectorAll('Style[id]').forEach(s=>{
+    const id=s.getAttribute('id');
+    const lc=s.querySelector('LineStyle > color')?.textContent;
+    const pc=s.querySelector('PolyStyle > color')?.textContent;
+    const fill=s.querySelector('PolyStyle > fill')?.textContent;
+    styles[id]={
+      lineColor: kmlColor(lc) || '#f59e0b',
+      fillColor: kmlColor(pc) || '#f59e0b',
+      fillOpacity: fill==='0' ? 0 : 0.25,
+    };
+  });
+  // StyleMap → apuntan a estilos normales
+  doc.querySelectorAll('StyleMap[id]').forEach(sm=>{
+    const id=sm.getAttribute('id');
+    const normalUrl=sm.querySelector('Pair:first-child styleUrl')?.textContent?.replace('#','') ||
+                    [...sm.querySelectorAll('Pair')].find(p=>p.querySelector('key')?.textContent==='normal')?.querySelector('styleUrl')?.textContent?.replace('#','');
+    if(normalUrl && styles[normalUrl]) styles[id]=styles[normalUrl];
+  });
+
+  const layers=[];
+  doc.querySelectorAll('Placemark').forEach(pm=>{
+    const name=(pm.querySelector('name')?.textContent||'').trim();
+    const desc=(pm.querySelector('description')?.textContent||'').trim();
+    const styleUrl=pm.querySelector('styleUrl')?.textContent?.replace(/^#/,'');
+    const st=styles[styleUrl]||{lineColor:'#f59e0b',fillColor:'#f59e0b',fillOpacity:0.2};
+    const popup=`<b>${name||'Zona'}</b>${desc?'<br><small>'+desc+'</small>':''}`;
+
+    // Polígono
+    pm.querySelectorAll('Polygon').forEach(poly=>{
+      const outer=poly.querySelector('outerBoundaryIs coordinates');
+      const coords=parseKMLCoords(outer?.textContent);
+      if(coords.length>2){
+        layers.push(L.polygon(coords,{color:st.lineColor,fillColor:st.fillColor,fillOpacity:st.fillOpacity,weight:2}).bindPopup(popup));
+      }
+      // Huecos (innerBoundaryIs)
+      poly.querySelectorAll('innerBoundaryIs coordinates').forEach(inner=>{
+        const holeCoords=parseKMLCoords(inner.textContent);
+        if(holeCoords.length>2) layers.push(L.polygon([holeCoords],{color:st.lineColor,fillColor:'transparent',fillOpacity:0,weight:1,dashArray:'4'}));
+      });
+    });
+
+    // MultiGeometry → polígonos múltiples
+    pm.querySelectorAll('MultiGeometry Polygon').forEach(poly=>{
+      const outer=poly.querySelector('outerBoundaryIs coordinates');
+      const coords=parseKMLCoords(outer?.textContent);
+      if(coords.length>2) layers.push(L.polygon(coords,{color:st.lineColor,fillColor:st.fillColor,fillOpacity:st.fillOpacity,weight:2}).bindPopup(popup));
+    });
+
+    // Línea
+    pm.querySelectorAll('LineString,MultiGeometry LineString').forEach(ls=>{
+      const coords=parseKMLCoords(ls.querySelector('coordinates')?.textContent);
+      if(coords.length>1) layers.push(L.polyline(coords,{color:st.lineColor,weight:2.5}).bindPopup(popup));
+    });
+
+    // Punto
+    pm.querySelectorAll('Point').forEach(pt=>{
+      const c=(pt.querySelector('coordinates')?.textContent||'').trim().split(',');
+      const lat=parseFloat(c[1]), lng=parseFloat(c[0]);
+      if(!isNaN(lat)&&!isNaN(lng)){
+        const icon=L.divIcon({className:'',html:`<div style="background:#f59e0b;width:10px;height:10px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>`,iconSize:[10,10],iconAnchor:[5,5]});
+        layers.push(L.marker([lat,lng],{icon}).bindPopup(popup));
+      }
+    });
+  });
+
+  if(!layers.length){ alert('No se encontraron elementos cartográficos en el archivo.'); return; }
+
+  kmzLayer=L.layerGroup(layers).addTo(map);
+  const fg=L.featureGroup(layers);
+  if(fg.getBounds().isValid()) map.fitBounds(fg.getBounds(),{padding:[30,30]});
+
+  const st=document.getElementById('kmz-status');
+  st.textContent=`✅ ${fileName} — ${layers.length} elementos cargados`;
+  st.classList.add('show');
+  document.getElementById('overlay-panel').classList.remove('show');
+  document.getElementById('overlay-btn').classList.remove('active');
+}
+
+function parseKMLCoords(text){
+  if(!text) return [];
+  return text.trim().split(/\s+/).map(c=>{
+    const p=c.split(',');
+    const lat=parseFloat(p[1]), lng=parseFloat(p[0]);
+    return (!isNaN(lat)&&!isNaN(lng)) ? [lat,lng] : null;
+  }).filter(Boolean);
+}
+
+function kmlColor(kml){
+  // KML: aabbggrr (alpha-blue-green-red)
+  if(!kml||kml.length<6) return null;
+  const r=kml.slice(-2), g=kml.slice(-4,-2), b=kml.slice(-6,-4);
+  return '#'+r+g+b;
+}
+
+function clearKMZ(){
+  if(kmzLayer){ map.removeLayer(kmzLayer); kmzLayer=null; }
+  const st=document.getElementById('kmz-status');
+  st.textContent='';
+  st.classList.remove('show');
+}
+
+function restoreKMZ(){
+  const kmlText=localStorage.getItem('kmz_kml_'+currentPark);
+  const name=localStorage.getItem('kmz_name_'+currentPark)||'parque.kmz';
+  if(kmlText) renderKML(kmlText,name);
+}
 
 // ── NORMALIZAR worker del servidor ──
 // El DB devuelve {id, name, lastLat, lastLng, status} — normalizamos al
@@ -267,13 +441,15 @@ function toggleSatellite(){
 function toggleOverlayPanel(){
   document.getElementById('overlay-panel').classList.toggle('show');
   document.getElementById('overlay-btn').classList.toggle('active');
-  // Pre-rellenar con bounds del parque actual
-  const c = PARK_CENTERS[currentPark];
-  const d = 0.003;
-  document.getElementById('ov-lat1').value = (c[0]+d).toFixed(4);
-  document.getElementById('ov-lat2').value = (c[0]-d).toFixed(4);
-  document.getElementById('ov-lng1').value = (c[1]-d).toFixed(4);
-  document.getElementById('ov-lng2').value = (c[1]+d).toFixed(4);
+  // Pre-rellenar bounds del parque para tab imagen
+  const c=PARK_CENTERS[currentPark];
+  const d=0.003;
+  document.getElementById('ov-lat1').value=(c[0]+d).toFixed(4);
+  document.getElementById('ov-lat2').value=(c[0]-d).toFixed(4);
+  document.getElementById('ov-lng1').value=(c[1]-d).toFixed(4);
+  document.getElementById('ov-lng2').value=(c[1]+d).toFixed(4);
+  // Restaurar estado del tab activo
+  switchOverlayTab(activeOverlayTab);
 }
 
 let overlayDataUrl = null;
@@ -482,6 +658,7 @@ function switchPark(p){
   const prev=currentPark;
   currentPark=p;
   clearOverlay();
+  clearKMZ();
   Object.keys(markers).forEach(removeMarker);
   workers={};
   renderWorkers();
@@ -490,6 +667,7 @@ function switchPark(p){
   socket?.emit('join:park',p);
   loadWorkers();
   restoreOverlay();
+  restoreKMZ();
 }
 
 // ── SIDEBAR ──
@@ -545,6 +723,7 @@ initSocket();
 renderWorkers();
 renderSOSList();
 restoreOverlay();
+restoreKMZ();
 // Polling cada 15s para asegurar datos actualizados
 setInterval(loadWorkers, 15000);
 </script>
