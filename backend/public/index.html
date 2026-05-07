@@ -349,16 +349,24 @@ async function renderKML(kmlText, fileName, zip){
     const href=txt(gbt1(go,'Icon')||go,'href');
     const name=txt(go,'name')||'Foto aérea';
 
+    // Siempre añadir al menos el rectángulo del área
+    const rect=L.rectangle([[s,w],[n,e]],{color:'#f59e0b',weight:1,fillOpacity:0.06,dashArray:'3'});
+
     if(zip&&href&&zip.files[href]){
       try{
-        const blob=await zip.files[href].async('blob');
-        const url=URL.createObjectURL(blob);
-        layers.push(L.imageOverlay(url,[[s,w],[n,e]],{opacity:0.85,interactive:false}));
+        const imgData=await zip.files[href].async('blob');
+        const url=URL.createObjectURL(imgData);
+        // Imagen real de ortofoto embebida en el KMZ
+        layers.push(L.imageOverlay(url,[[s,w],[n,e]],{opacity:0.88,interactive:false,crossOrigin:''}));
         goCount++;
-      }catch(_){}
+      }catch(imgErr){
+        // Si la imagen no carga, mostrar el rectángulo de área
+        console.warn('[KMZ] imagen fallida:',href,imgErr?.message);
+        layers.push(rect);
+        goCount++;
+      }
     } else {
-      // Sin imagen → rectángulo de contorno
-      layers.push(L.rectangle([[s,w],[n,e]],{color:'#f59e0b',weight:1,fillOpacity:0.08,dashArray:'4'}).bindPopup(`<b>${name}</b>`));
+      layers.push(rect);
       goCount++;
     }
   }
@@ -405,7 +413,11 @@ async function renderKML(kmlText, fileName, zip){
     }
   }
 
-  if(!layers.length){ alert('No se encontraron elementos cartográficos.\n\nEste KMZ puede contener datos que requieren conexión a internet (NetworkLinks externos).'); return; }
+  console.log(`[KMZ] ${fileName}: GO=${goCount} NL=${hasNL} PM=${layers.length-goCount-(hasNL?1:0)} total=${layers.length}`);
+  if(!layers.length){
+    alert('No se cargaron elementos del archivo KMZ.\n\nTipos detectados:\n• GroundOverlay (fotos): '+sortedGO.length+'\n• NetworkLink: '+gbt(doc,'NetworkLink').length+'\n• Placemark: '+gbt(doc,'Placemark').length+'\n\nRevisa la consola del navegador (F12) para más detalle.');
+    return;
+  }
 
   kmzLayer=L.layerGroup(layers).addTo(map);
   const fg=L.featureGroup(layers.filter(l=>l.getBounds));
