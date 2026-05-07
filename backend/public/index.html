@@ -327,47 +327,90 @@ async function renderKML(kmlText, fileName, zip){
 
   // ── 1. GroundOverlay (fotos aéreas / ortomosaicos de Pix4D) ──
   let goCount=0;
-  const MAX_GO=50; // limitar tiles para no saturar el navegador
+  const MAX_GO=80;
   const allGO=gbt(doc,'GroundOverlay');
-  // Priorizar tiles de baja resolución (L1, L2, L3) → prefijo en nombre del archivo
-  const prioritize=e=>{
-    const hr=txt(gbt1(e,'Icon')||e,'href');
-    if(hr.includes('_L1_'))return 0;
-    if(hr.includes('_L2_'))return 1;
-    if(hr.includes('_L3_'))return 2;
-    if(hr.includes('_L4_'))return 3;
-    return 4;
-  };
-  const sortedGO=[...allGO].sort((a,b)=>prioritize(a)-prioritize(b));
 
-  for(const go of sortedGO){
-    if(goCount>=MAX_GO) break;
+  // Detectar nivel de resolución de cada tile (L1=panorama, L2=media, L3+=detalle)
+  function getTileLevel(go){
+    const hr=txt(gbt1(go,'Icon')||go,'href');
+    const doEl=gbt1(go,'drawOrder');
+    const drawOrd=doEl?parseInt(doEl.textContent)||0:0;
+    if(hr.includes('_L1_'))return{lvl:1,drawOrd};
+    if(hr.includes('_L2_'))return{lvl:2,drawOrd};
+    if(hr.includes('_L3_'))return{lvl:3,drawOrd};
+    if(hr.includes('_L4_'))return{lvl:4,drawOrd};
+    if(hr.includes('_L5_'))return{lvl:5,drawOrd};
+    return{lvl:0,drawOrd};
+  }
+
+  // Clasificar tiles por nivel
+  const byLevel={};
+  for(const go of allGO){
+    const{lvl}=getTileLevel(go);
+    if(!byLevel[lvl]) byLevel[lvl]=[];
+    byLevel[lvl].push(go);
+  }
+  const levels=Object.keys(byLevel).map(Number).sort();
+  const hasPyramid=levels.some(l=>l>0);
+
+  // Selección de tiles: si hay pirámide (Pix4D), mostrar L1 (panorama) + L2 (medio)
+  // Esto da una vista limpia sin tiles solapados de distintas resoluciones
+  let selectedGO=[];
+  if(hasPyramid){
+    // Nivel base (L1): pocos tiles, cubre toda la planta
+    for(const lvl of levels.filter(l=>l<=2)){
+      selectedGO=selectedGO.concat(byLevel[lvl]);
+    }
+    // Si el L1 y L2 son pocos (< 10), agregar también L3 para más detalle
+    if(selectedGO.length<10 && byLevel[3]){
+      selectedGO=selectedGO.concat(byLevel[3]);
+    }
+  } else {
+    // Sin pirámide detectada — mostrar todos
+    selectedGO=[...allGO];
+  }
+  selectedGO=selectedGO.slice(0,MAX_GO);
+
+  // Ordenar: niveles bajos primero (zIndex menor = al fondo), niveles altos al frente
+  selectedGO.sort((a,b)=>{
+    const{lvl:la,drawOrd:da}=getTileLevel(a);
+    const{lvl:lb,drawOrd:db}=getTileLevel(b);
+    return la!==lb ? la-lb : da-db;
+  });
+
+  for(const go of selectedGO){
     const llb=gbt1(go,'LatLonBox'); if(!llb) continue;
     const n=parseFloat(txt(llb,'north')), s=parseFloat(txt(llb,'south'));
-    const e=parseFloat(txt(llb,'east')),  w=parseFloat(txt(llb,'west'));
-    if(isNaN(n)||isNaN(s)||isNaN(e)||isNaN(w)) continue;
+    const e_=parseFloat(txt(llb,'east')), w=parseFloat(txt(llb,'west'));
+    if(isNaN(n)||isNaN(s)||isNaN(e_)||isNaN(w)) continue;
     const href=txt(gbt1(go,'Icon')||go,'href');
-    const name=txt(go,'name')||'Foto aérea';
+    const{lvl,drawOrd}=getTileLevel(go);
+    // zIndex: L1→210, L2→220, L3→230... tiles de mayor resolución van encima
+    const zIdx=200+(lvl>0?lvl:1)*10+drawOrd;
+    const rect=L.rectangle([[s,w],[n,e_]],{color:'#f59e0b',weight:1,fillOpacity:0.05,dashArray:'4'});
 
-    // Siempre añadir al menos el rectángulo del área
-    const rect=L.rectangle([[s,w],[n,e]],{color:'#f59e0b',weight:1,fillOpacity:0.06,dashArray:'3'});
+    // Buscar imagen en el ZIP (probar ruta exacta y variantes de carpeta)
+    let imgEntry=null;
+    if(zip&&href){
+      imgEntry=zip.files[href]
+        || zip.files[href.replace(/^files\//,'')]
+        || Object.values(zip.files).find(f=>f.name.endsWith('/'+href.split('/').pop()));
+    }
 
-    if(zip&&href&&zip.files[href]){
+    if(imgEntry){
       try{
-        const imgData=await zip.files[href].async('blob');
-        const url=URL.createObjectURL(imgData);
-        // Imagen real de ortofoto embebida en el KMZ
-        layers.push(L.imageOverlay(url,[[s,w],[n,e]],{opacity:0.88,interactive:false,crossOrigin:''}));
+        const imgData=await imgEntry.async('blob');
+        const blobUrl=URL.createObjectURL(imgData);
+        layers.push(L.imageOverlay(blobUrl,[[s,w],[n,e_]],{
+          opacity:0.90, interactive:false, crossOrigin:'anonymous', zIndex:zIdx
+        }));
         goCount++;
       }catch(imgErr){
-        // Si la imagen no carga, mostrar el rectángulo de área
         console.warn('[KMZ] imagen fallida:',href,imgErr?.message);
-        layers.push(rect);
-        goCount++;
+        layers.push(rect); goCount++;
       }
     } else {
-      layers.push(rect);
-      goCount++;
+      layers.push(rect); goCount++;
     }
   }
 
@@ -413,9 +456,10 @@ async function renderKML(kmlText, fileName, zip){
     }
   }
 
-  console.log(`[KMZ] ${fileName}: GO=${goCount} NL=${hasNL} PM=${layers.length-goCount-(hasNL?1:0)} total=${layers.length}`);
+  const lvlInfo=hasPyramid ? ` niveles: [${levels.join(',')}] → mostrando ${selectedGO.length}/${allGO.length}` : '';
+  console.log(`[KMZ] ${fileName}: GO=${goCount}${lvlInfo} NL=${hasNL} PM=${layers.length-goCount-(hasNL?1:0)} total=${layers.length}`);
   if(!layers.length){
-    alert('No se cargaron elementos del archivo KMZ.\n\nTipos detectados:\n• GroundOverlay (fotos): '+sortedGO.length+'\n• NetworkLink: '+gbt(doc,'NetworkLink').length+'\n• Placemark: '+gbt(doc,'Placemark').length+'\n\nRevisa la consola del navegador (F12) para más detalle.');
+    alert('No se cargaron elementos del archivo KMZ.\n\nTipos detectados:\n• GroundOverlay (fotos): '+allGO.length+' total, '+selectedGO.length+' seleccionados\n• NetworkLink: '+gbt(doc,'NetworkLink').length+'\n• Placemark: '+gbt(doc,'Placemark').length+'\n\nRevisa la consola del navegador (F12) para más detalle.');
     return;
   }
 
@@ -424,7 +468,9 @@ async function renderKML(kmlText, fileName, zip){
   try{ if(fg.getBounds().isValid()) map.fitBounds(fg.getBounds(),{padding:[30,30]}); }catch(_){}
 
   const statusEl=document.getElementById('kmz-status');
-  statusEl.textContent=`✅ ${fileName} — ${layers.length} elementos`;
+  const goTxt=goCount>0?` • ${goCount} fotos aéreas`:'';
+  const nlTxt=hasNL?' • área de red':'';
+  statusEl.textContent=`✅ ${fileName}${goTxt}${nlTxt}`;
   statusEl.classList.add('show');
   document.getElementById('overlay-panel').classList.remove('show');
   document.getElementById('overlay-btn').classList.remove('active');
