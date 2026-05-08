@@ -110,8 +110,14 @@
     .op-tabs{display:flex;gap:4px;margin-bottom:10px}
     .op-tab{flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer}
     .op-tab.active{background:var(--blue);border-color:var(--blue);color:#fff}
-    #kmz-status{font-size:11px;color:var(--green);margin-top:6px;word-break:break-all;display:none}
+    #kmz-status{font-size:11px;color:var(--muted);margin-top:4px;display:none}
     #kmz-status.show{display:block}
+    /* Lista de archivos KMZ cargados */
+    #kmz-file-list{margin-top:8px;display:flex;flex-direction:column;gap:3px;max-height:120px;overflow-y:auto}
+    .kmz-item{display:flex;align-items:center;gap:6px;padding:5px 8px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:6px}
+    .kmz-item-name{flex:1;font-size:11px;color:var(--green);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .kmz-item-rm{background:transparent;border:none;color:var(--muted);font-size:13px;cursor:pointer;padding:0 2px;flex-shrink:0;line-height:1}
+    .kmz-item-rm:hover{color:var(--red)}
 
     /* ── SCROLLBAR ── */
     ::-webkit-scrollbar{width:4px}
@@ -200,11 +206,13 @@
 
     <!-- KMZ tab -->
     <div id="op-kmz">
-      <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Carga el archivo KMZ de la planta — se ubica automáticamente en el mapa con sus coordenadas reales.</p>
-      <button class="op-btn op-upload" onclick="document.getElementById('kmz-file').click()">📁 Cargar archivo KMZ</button>
-      <input type="file" id="kmz-file" accept=".kmz,.kml" onchange="loadKMZFile(this)"/>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Carga uno o varios archivos KMZ — se superponen en el mapa con sus coordenadas reales.</p>
+      <button class="op-btn op-upload" onclick="document.getElementById('kmz-file').click()">📁 Cargar KMZ / KML</button>
+      <input type="file" id="kmz-file" accept=".kmz,.kml" multiple onchange="loadKMZFile(this)"/>
+      <!-- Lista dinámica de archivos cargados -->
+      <div id="kmz-file-list"></div>
       <div id="kmz-status"></div>
-      <button class="op-btn op-clear" style="margin-top:6px" onclick="clearKMZ()">✕ Quitar KMZ del mapa</button>
+      <button class="op-btn op-clear" style="margin-top:6px" onclick="clearAllKMZ()">✕ Quitar todos del mapa</button>
     </div>
 
     <!-- Imagen tab -->
@@ -265,7 +273,7 @@ let workers={}, markers={}, sosList=[], sidebarOpen=false;
 let deferredInstall=null;
 let satelliteMode=false, streetLayer, satLayer;
 let imageOverlay=null;
-let kmzLayer=null;
+let kmzLayers={};   // { filename → { layer: L.LayerGroup, kmlText: string } }
 let activeOverlayTab='kmz';
 
 // ── OVERLAY TABS ──
@@ -324,32 +332,94 @@ function parseStyles(doc){
   return styles;
 }
 
-async function loadKMZFile(input){
-  const file=input.files[0]; if(!file) return;
+// ── KMZ: actualizar lista visual ──
+function updateKMZList(){
+  const listEl=document.getElementById('kmz-file-list');
   const statusEl=document.getElementById('kmz-status');
-  statusEl.textContent='⏳ Cargando archivo…'; statusEl.classList.add('show');
-  try{
-    let kmlText, zip=null;
-    if(file.name.toLowerCase().endsWith('.kmz')){
-      const ab=await file.arrayBuffer();
-      zip=await JSZip.loadAsync(ab);
-      const kmlEntry=Object.values(zip.files).find(f=>f.name.toLowerCase().endsWith('.kml'));
-      if(!kmlEntry){ alert('No se encontró archivo KML dentro del KMZ'); statusEl.classList.remove('show'); return; }
-      kmlText=await kmlEntry.async('text');
-    } else {
-      kmlText=await file.text();
-    }
-    await renderKML(kmlText, file.name, zip);
-    try{ localStorage.setItem('kmz_kml_'+currentPark,kmlText); localStorage.setItem('kmz_name_'+currentPark,file.name); }catch(e){}
-  }catch(e){
-    alert('Error al leer el archivo: '+e.message);
-    statusEl.classList.remove('show');
+  const names=Object.keys(kmzLayers);
+  if(!names.length){
+    listEl.innerHTML='';
+    statusEl.textContent=''; statusEl.classList.remove('show');
+    return;
   }
+  listEl.innerHTML=names.map(n=>`
+    <div class="kmz-item">
+      <span class="kmz-item-name" title="${n}">✅ ${n}</span>
+      <button class="kmz-item-rm" onclick="removeKMZ(${JSON.stringify(n)})" title="Quitar">✕</button>
+    </div>`).join('');
+  statusEl.textContent=`${names.length} capa${names.length>1?'s':''} cargada${names.length>1?'s':''}`;
+  statusEl.classList.add('show');
+}
+
+// ── KMZ: guardar en localStorage (sin imágenes — solo KML text) ──
+function saveKMZToStorage(){
+  try{
+    const files=Object.entries(kmzLayers).map(([name,{kmlText}])=>({name,kml:kmlText||''}));
+    if(files.length){
+      localStorage.setItem('kmz_files_'+currentPark,JSON.stringify(files));
+    } else {
+      localStorage.removeItem('kmz_files_'+currentPark);
+    }
+    // Limpiar claves del formato antiguo
+    localStorage.removeItem('kmz_kml_'+currentPark);
+    localStorage.removeItem('kmz_name_'+currentPark);
+  }catch(e){ console.warn('[KMZ] localStorage lleno:',e.message); }
+}
+
+// ── KMZ: quitar un archivo individual ──
+function removeKMZ(filename){
+  if(kmzLayers[filename]?.layer) map.removeLayer(kmzLayers[filename].layer);
+  delete kmzLayers[filename];
+  updateKMZList();
+  saveKMZToStorage();
+}
+
+// ── KMZ: quitar todos (botón usuario) ──
+function clearAllKMZ(){
+  Object.values(kmzLayers).forEach(({layer})=>{ if(layer) map.removeLayer(layer); });
+  kmzLayers={};
+  updateKMZList();
+  saveKMZToStorage();
+}
+
+// ── KMZ: descargar del mapa SIN tocar localStorage (para switchPark) ──
+function unloadKMZFromMap(){
+  Object.values(kmzLayers).forEach(({layer})=>{ if(layer) map.removeLayer(layer); });
+  kmzLayers={};
+  updateKMZList();
+}
+
+// ── KMZ: cargar uno o varios archivos ──
+async function loadKMZFile(input){
+  const files=[...input.files]; if(!files.length) return;
+  const statusEl=document.getElementById('kmz-status');
+  statusEl.textContent=`⏳ Cargando ${files.length} archivo${files.length>1?'s':''}…`; statusEl.classList.add('show');
+
+  for(const file of files){
+    try{
+      let kmlText, zip=null;
+      if(file.name.toLowerCase().endsWith('.kmz')){
+        const ab=await file.arrayBuffer();
+        zip=await JSZip.loadAsync(ab);
+        const kmlEntry=Object.values(zip.files).find(f=>f.name.toLowerCase().endsWith('.kml'));
+        if(!kmlEntry){ console.warn('[KMZ] Sin KML en:',file.name); continue; }
+        kmlText=await kmlEntry.async('text');
+      } else {
+        kmlText=await file.text();
+      }
+      await renderKML(kmlText, file.name, zip);
+    }catch(e){
+      console.error('[KMZ] Error cargando',file.name,e.message);
+      alert(`Error al leer ${file.name}: ${e.message}`);
+    }
+  }
+  saveKMZToStorage();
   input.value='';
 }
 
 async function renderKML(kmlText, fileName, zip){
-  clearKMZ();
+  // Si ya existe una capa con ese nombre, reemplazarla (recarga del mismo archivo)
+  if(kmzLayers[fileName]?.layer) map.removeLayer(kmzLayers[fileName].layer);
   const parser=new DOMParser();
   const doc=parser.parseFromString(kmlText,'text/xml');
   const styles=parseStyles(doc);
@@ -493,35 +563,43 @@ async function renderKML(kmlText, fileName, zip){
     return;
   }
 
-  kmzLayer=L.layerGroup(layers).addTo(map);
+  // Guardar la capa en el diccionario (permite múltiples KMZ simultáneos)
+  const layer=L.layerGroup(layers).addTo(map);
+  kmzLayers[fileName]={layer, kmlText};
+
+  // Centrar en los elementos con bounds válidos (sin cerrar el panel aún)
   const fg=L.featureGroup(layers.filter(l=>l.getBounds));
   try{ if(fg.getBounds().isValid()) map.fitBounds(fg.getBounds(),{padding:[30,30]}); }catch(_){}
 
-  const statusEl=document.getElementById('kmz-status');
-  const goTxt=goCount>0?` • ${goCount} fotos aéreas`:'';
-  const nlTxt=hasNL?' • área':'';
-  const parkTxt=` [${PARK_NAMES[currentPark]||currentPark}]`;
-  statusEl.textContent=`✅ ${fileName}${goTxt}${nlTxt}${parkTxt}`;
-  statusEl.classList.add('show');
+  updateKMZList();
+
+  const goTxt=goCount>0?` (${goCount} foto${goCount>1?'s':''})`:'';
+  console.log(`[KMZ] ✅ ${fileName}${goTxt} — total en mapa: ${Object.keys(kmzLayers).length} capas`);
   document.getElementById('overlay-panel').classList.remove('show');
   document.getElementById('overlay-btn').classList.remove('active');
 }
 
-function clearKMZ(){
-  if(kmzLayer){ map.removeLayer(kmzLayer); kmzLayer=null; }
-  // Limpiar también el localStorage del parque activo
-  try{
-    localStorage.removeItem('kmz_kml_'+currentPark);
-    localStorage.removeItem('kmz_name_'+currentPark);
-  }catch(e){}
-  const st=document.getElementById('kmz-status');
-  st.textContent=''; st.classList.remove('show');
-}
-
+// restoreKMZ: carga desde localStorage los archivos guardados para este parque
 async function restoreKMZ(){
-  const kmlText=localStorage.getItem('kmz_kml_'+currentPark);
-  const name=localStorage.getItem('kmz_name_'+currentPark)||'parque.kmz';
-  if(kmlText) await renderKML(kmlText,name,null); // sin ZIP → sin imágenes embed, muestra rectángulos
+  try{
+    // Nuevo formato: array de {name, kml}
+    const filesJson=localStorage.getItem('kmz_files_'+currentPark);
+    if(filesJson){
+      const files=JSON.parse(filesJson);
+      for(const {name,kml} of files){
+        if(kml) await renderKML(kml,name,null); // sin ZIP → muestra rectángulos en vez de fotos
+      }
+      updateKMZList();
+      return;
+    }
+    // Formato antiguo (compatibilidad hacia atrás)
+    const kmlText=localStorage.getItem('kmz_kml_'+currentPark);
+    const name=localStorage.getItem('kmz_name_'+currentPark)||'parque.kmz';
+    if(kmlText){
+      await renderKML(kmlText,name,null);
+      updateKMZList();
+    }
+  }catch(e){ console.warn('[KMZ] Error restaurando:',e.message); }
 }
 
 // ── NORMALIZAR worker del servidor ──
@@ -794,18 +872,37 @@ function renderSOSList(){
 // ── PARK SWITCH ──
 function switchPark(p){
   const prev=currentPark;
+
+  // 1. Guardar estado del mapa actual (zoom + centro) para poder restaurarlo al volver
+  try{
+    const c=map.getCenter();
+    localStorage.setItem('map_state_'+prev,JSON.stringify({lat:c.lat,lng:c.lng,zoom:map.getZoom()}));
+  }catch(e){}
+
+  // 2. Guardar KMZ actuales en localStorage ANTES de descargar del mapa
+  saveKMZToStorage();
+
   currentPark=p;
+
+  // 3. Limpiar el mapa (sin borrar localStorage — solo desmontar del mapa)
   clearOverlay();
-  clearKMZ();
+  unloadKMZFromMap();
   Object.keys(markers).forEach(removeMarker);
   workers={};
   renderWorkers();
-  map.setView(PARK_CENTERS[p],15,{animate:true});
+
+  // 4. Restaurar posición del mapa para el nuevo parque (o ir al centro por defecto)
+  try{
+    const saved=JSON.parse(localStorage.getItem('map_state_'+p)||'null');
+    if(saved) map.setView([saved.lat,saved.lng],saved.zoom,{animate:true});
+    else      map.setView(PARK_CENTERS[p],15,{animate:true});
+  }catch(e){ map.setView(PARK_CENTERS[p],15,{animate:true}); }
+
   socket?.emit('leave:park',prev);
   socket?.emit('join:park',p);
   loadWorkers();
   restoreOverlay();
-  restoreKMZ();
+  restoreKMZ();   // restaura los KMZ guardados para este parque
 }
 
 // ── SIDEBAR ──
@@ -862,6 +959,7 @@ renderWorkers();
 renderSOSList();
 restoreOverlay();
 restoreKMZ(); // async, no bloqueante
+updateKMZList();
 // Polling cada 15s para asegurar datos actualizados
 setInterval(loadWorkers, 15000);
 </script>

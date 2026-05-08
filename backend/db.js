@@ -18,7 +18,8 @@ const db = {
 };
 
 // Índices para consultas rápidas
-db.workers.ensureIndex({ fieldName: 'id', unique: true });
+db.workers.ensureIndex({ fieldName: 'id',     unique: true });
+db.workers.ensureIndex({ fieldName: 'parkId' });   // ← acelera getWorkersByPark
 db.locations.ensureIndex({ fieldName: 'workerId' });
 db.locations.ensureIndex({ fieldName: 'parkId' });
 db.locations.ensureIndex({ fieldName: 'date' });
@@ -70,25 +71,30 @@ function insertLocation(record) {
     db.locations.insert(locDoc, (err, newDoc) => {
       if (err) return reject(err);
 
-      // Actualizar o crear el worker
+      // Actualizar o crear el worker — best-effort: si falla no bloquear la inserción
       const workerDoc = {
-        id:       record.workerId,
-        name:     record.workerName || 'Desconocido',
-        parkId:   record.parkId,
-        zoneId:   record.zoneId || '',
-        zoneName: record.zoneName || '',
-        status:   'online',
-        lastLat:  record.lat,
-        lastLng:  record.lng,
-        lastSeen: record.ts || new Date().toISOString(),
-        battery:  record.battery || null,
+        id:        record.workerId,
+        workerId:  record.workerId,   // ← campo duplicado para compatibilidad con normalizeWorker
+        name:      record.workerName || 'Desconocido',
+        workerName: record.workerName || 'Desconocido',
+        parkId:    record.parkId,
+        zoneId:    record.zoneId  || '',
+        zoneName:  record.zoneName || '',
+        status:    'online',
+        lastLat:   record.lat,
+        lastLng:   record.lng,
+        lastSeen:  record.ts || new Date().toISOString(),
+        battery:   record.battery || null,
       };
 
       db.workers.update(
         { id: record.workerId },
         { $set: workerDoc },
         { upsert: true },
-        (err2) => { if (err2) return reject(err2); resolve(newDoc); }
+        (err2) => {
+          if (err2) console.error('[db] Worker upsert error (non-fatal):', err2.message);
+          resolve(newDoc); // ← siempre resolve — la localización ya fue guardada
+        }
       );
     });
   });
@@ -134,19 +140,24 @@ function insertBatch(workerId, workerName, parkId, zoneId, zoneName, locations) 
         db.workers.update(
           { id: workerId },
           { $set: {
-            id:       workerId,
-            name:     wName,
+            id:         workerId,
+            workerId:   workerId,   // campo duplicado para compatibilidad
+            name:       wName,
+            workerName: wName,
             parkId,
-            zoneId:   zoneId || last.zoneId || '',
-            zoneName: zoneName || last.zoneName || '',
-            status:   'online',
-            lastLat:  last.lat,
-            lastLng:  last.lng,
-            lastSeen: last.ts || new Date().toISOString(),
-            battery:  last.battery || null,
+            zoneId:     zoneId   || last.zoneId   || '',
+            zoneName:   zoneName || last.zoneName || '',
+            status:     'online',
+            lastLat:    last.lat,
+            lastLng:    last.lng,
+            lastSeen:   last.ts || new Date().toISOString(),
+            battery:    last.battery || null,
           }},
           { upsert: true },
-          () => resolve(newDocs.length)
+          (err) => {
+            if (err) console.error('[db] Worker batch upsert error (non-fatal):', err.message);
+            resolve(newDocs.length);
+          }
         );
       } else {
         resolve(0);
