@@ -23,11 +23,14 @@
     body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;height:100dvh;overflow:hidden;display:flex;flex-direction:column}
 
     /* ── TOP BAR ── */
-    #topbar{background:var(--card);border-bottom:1px solid var(--border);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:100}
-    #topbar .logo{font-size:20px}
-    #topbar .title{font-weight:700;color:var(--solar);font-size:16px}
-    #topbar .subtitle{font-size:11px;color:var(--muted)}
-    #park-select{margin-left:auto;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;max-width:180px}
+    #topbar{background:var(--card);border-bottom:1px solid var(--border);padding:8px 14px;display:flex;align-items:center;gap:12px;flex-shrink:0;z-index:100}
+    .enel-logo{display:flex;align-items:center;gap:10px;flex-shrink:0}
+    .enel-wordmark{height:28px;width:auto;filter:brightness(0) invert(1)}
+    .enel-divider{width:1px;height:28px;background:var(--border)}
+    .brand-stack{display:flex;flex-direction:column;justify-content:center}
+    #topbar .title{font-weight:700;color:var(--solar);font-size:14px;line-height:1.2}
+    #topbar .subtitle{font-size:10px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase}
+    #park-select{margin-left:auto;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;max-width:200px}
     #conn-badge{font-size:11px;font-weight:600;white-space:nowrap}
 
     /* ── STATS BAR ── */
@@ -134,19 +137,31 @@
 
 <!-- Top Bar -->
 <div id="topbar">
-  <span class="logo">☀️</span>
-  <div>
-    <div class="title">SolarTrack</div>
-    <div class="subtitle">MAESTRO</div>
+  <!-- Enel logo (SVG inline — blanco) -->
+  <div class="enel-logo">
+    <svg height="30" viewBox="0 0 110 38" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Enel">
+      <!-- e -->
+      <path d="M0 19c0-10.5 7.8-19 17.5-19S35 8.5 35 19v2H8.5c.9 4.6 4.5 7.8 9 7.8 3.2 0 6-1.4 7.8-3.6l6.8 4C29 33.8 23.6 37 17.5 37 7.8 37 0 28.5 0 19zm8.8-3.5H26c-1.3-4-4.5-6.6-8.5-6.6s-7.2 2.6-8.7 6.6z" fill="white"/>
+      <!-- n -->
+      <path d="M39 1h8.5v4.8C49.5 2.8 53 .5 57.5.5c7.5 0 12.5 5.2 12.5 13V37H61.5V15.5c0-4.5-2.5-7-6.5-7s-7.5 2.8-7.5 7.5V37H39V1z" fill="white"/>
+      <!-- e -->
+      <path d="M75 19c0-10.5 7.8-19 17.5-19S110 8.5 110 19v2H83.5c.9 4.6 4.5 7.8 9 7.8 3.2 0 6-1.4 7.8-3.6l6.8 4C104 33.8 98.6 37 92.5 37 82.8 37 75 28.5 75 19zm8.8-3.5H101c-1.3-4-4.5-6.6-8.5-6.6s-7.2 2.6-8.7 6.6z" fill="white"/>
+    </svg>
+    <div class="enel-divider"></div>
+    <div class="brand-stack">
+      <div class="title">SolarTrack</div>
+      <div class="subtitle">Maestro de campo</div>
+    </div>
   </div>
+
   <select id="park-select" onchange="switchPark(this.value)">
-    <option value="P1">Parque 1 — Barranquilla Norte</option>
-    <option value="P2">Parque 2 — Barranquilla Sur</option>
-    <option value="P3">Parque 3 — Soledad</option>
-    <option value="P4">Parque 4 — Malambo</option>
-    <option value="P5">Parque 5 — Sabanalarga</option>
-    <option value="P6">Parque 6 — Cartagena</option>
-    <option value="P7">Parque 7 — Santa Marta</option>
+    <option value="P1">☀️ La Loma</option>
+    <option value="P2">☀️ El Paso</option>
+    <option value="P3">☀️ Fundación</option>
+    <option value="P4">☀️ Guayepo I &amp; II</option>
+    <option value="P5">☀️ Guayepo III</option>
+    <option value="P6">☀️ Atlántico</option>
+    <option value="P7">☀️ Valledupar</option>
   </select>
   <span id="conn-badge" style="color:var(--red)">✕ Sin conexión</span>
 </div>
@@ -225,9 +240,20 @@
 
 <script>
 const BACKEND = 'https://solartrack-server-production.up.railway.app';
+// Coordenadas aproximadas de las plantas solares Enel en Colombia
 const PARK_CENTERS = {
-  P1:[11.012,-74.837], P2:[10.980,-74.860], P3:[10.920,-74.760],
-  P4:[10.850,-74.780], P5:[10.630,-74.920], P6:[10.391,-75.479], P7:[11.240,-74.199]
+  P1:[ 9.975,-73.660],  // La Loma — Cesar
+  P2:[ 9.630,-73.730],  // El Paso — Cesar
+  P3:[10.520,-74.190],  // Fundación — Magdalena
+  P4:[10.830,-74.870],  // Guayepo I & II — Atlántico
+  P5:[10.800,-74.850],  // Guayepo III — Atlántico
+  P6:[10.820,-74.900],  // Atlántico
+  P7:[10.480,-73.250],  // Valledupar — Cesar
+};
+const PARK_NAMES = {
+  P1:'La Loma', P2:'El Paso', P3:'Fundación',
+  P4:'Guayepo I & II', P5:'Guayepo III',
+  P6:'Atlántico', P7:'Valledupar'
 };
 
 let map, socket, currentPark='P1';
