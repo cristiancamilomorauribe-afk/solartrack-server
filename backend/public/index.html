@@ -273,7 +273,8 @@ let workers={}, markers={}, sosList=[], sidebarOpen=false;
 let deferredInstall=null;
 let satelliteMode=false, streetLayer, satLayer;
 let imageOverlay=null;
-let kmzLayers={};   // { filename → { layer: L.LayerGroup, kmlText: string } }
+let kmzLayers={};   // { filename → { layer: L.LayerGroup, kmlText: string, arrayBuffer: ArrayBuffer|null } }
+let kmzCache={};    // { parkId → [{name, kmlText, arrayBuffer}] } — caché en memoria para restaurar con imágenes al cambiar de parque
 let activeOverlayTab='kmz';
 
 // ── OVERLAY TABS ──
@@ -397,17 +398,17 @@ async function loadKMZFile(input){
 
   for(const file of files){
     try{
-      let kmlText, zip=null;
+      let kmlText, zip=null, arrayBuffer=null;
       if(file.name.toLowerCase().endsWith('.kmz')){
-        const ab=await file.arrayBuffer();
-        zip=await JSZip.loadAsync(ab);
+        arrayBuffer=await file.arrayBuffer();
+        zip=await JSZip.loadAsync(arrayBuffer);
         const kmlEntry=Object.values(zip.files).find(f=>f.name.toLowerCase().endsWith('.kml'));
         if(!kmlEntry){ console.warn('[KMZ] Sin KML en:',file.name); continue; }
         kmlText=await kmlEntry.async('text');
       } else {
         kmlText=await file.text();
       }
-      await renderKML(kmlText, file.name, zip);
+      await renderKML(kmlText, file.name, zip, arrayBuffer);
     }catch(e){
       console.error('[KMZ] Error cargando',file.name,e.message);
       alert(`Error al leer ${file.name}: ${e.message}`);
@@ -417,7 +418,7 @@ async function loadKMZFile(input){
   input.value='';
 }
 
-async function renderKML(kmlText, fileName, zip){
+async function renderKML(kmlText, fileName, zip, arrayBuffer){
   // Si ya existe una capa con ese nombre, reemplazarla (recarga del mismo archivo)
   if(kmzLayers[fileName]?.layer) map.removeLayer(kmzLayers[fileName].layer);
   const parser=new DOMParser();
@@ -565,7 +566,7 @@ async function renderKML(kmlText, fileName, zip){
 
   // Guardar la capa en el diccionario (permite múltiples KMZ simultáneos)
   const layer=L.layerGroup(layers).addTo(map);
-  kmzLayers[fileName]={layer, kmlText};
+  kmzLayers[fileName]={layer, kmlText, arrayBuffer: arrayBuffer||null};
 
   // Centrar en los elementos con bounds válidos (sin cerrar el panel aún)
   const fg=L.featureGroup(layers.filter(l=>l.getBounds));
@@ -579,27 +580,46 @@ async function renderKML(kmlText, fileName, zip){
   document.getElementById('overlay-btn').classList.remove('active');
 }
 
-// restoreKMZ: carga desde localStorage los archivos guardados para este parque
+// restoreKMZ: restaura capas KMZ para el parque actual
+// Prioridad: 1) caché en memoria (tiene imágenes) → 2) localStorage (solo contornos)
 async function restoreKMZ(){
+  // 1. Caché en memoria — se conserva al cambiar de parque en la misma sesión.
+  //    Contiene ArrayBuffer original → podemos reconstruir imágenes completas.
+  const cached=kmzCache[currentPark];
+  if(cached&&cached.length>0){
+    for(const {name,kmlText,arrayBuffer} of cached){
+      try{
+        if(arrayBuffer){
+          const zip=await JSZip.loadAsync(arrayBuffer);
+          await renderKML(kmlText,name,zip,arrayBuffer);
+        } else if(kmlText){
+          await renderKML(kmlText,name,null,null);
+        }
+      }catch(e){ console.warn('[KMZ] Error restaurando caché:',name,e.message); }
+    }
+    updateKMZList();
+    return;
+  }
+
+  // 2. localStorage — solo texto KML (sin imágenes → muestra rectángulos de área)
   try{
-    // Nuevo formato: array de {name, kml}
     const filesJson=localStorage.getItem('kmz_files_'+currentPark);
     if(filesJson){
       const files=JSON.parse(filesJson);
       for(const {name,kml} of files){
-        if(kml) await renderKML(kml,name,null); // sin ZIP → muestra rectángulos en vez de fotos
+        if(kml) await renderKML(kml,name,null,null);
       }
       updateKMZList();
       return;
     }
-    // Formato antiguo (compatibilidad hacia atrás)
+    // Formato antiguo (compatibilidad)
     const kmlText=localStorage.getItem('kmz_kml_'+currentPark);
     const name=localStorage.getItem('kmz_name_'+currentPark)||'parque.kmz';
     if(kmlText){
-      await renderKML(kmlText,name,null);
+      await renderKML(kmlText,name,null,null);
       updateKMZList();
     }
-  }catch(e){ console.warn('[KMZ] Error restaurando:',e.message); }
+  }catch(e){ console.warn('[KMZ] Error restaurando localStorage:',e.message); }
 }
 
 // ── NORMALIZAR worker del servidor ──
@@ -812,6 +832,8 @@ function initSocket(){
   });
 
   socket.on('location:update',(data)=>{
+    // Ignorar eventos de otros parques (belt-and-suspenders además de los rooms de Socket.IO)
+    if(data.parkId && data.parkId !== currentPark) return;
     const w=normalizeWorker({...workers[data.workerId||data.id]||{}, ...data, online:true, lastSeen:new Date().toISOString()});
     workers[w.workerId]=w;
     updateMarker(w);
@@ -823,6 +845,8 @@ function initSocket(){
   socket.on('workers:status-change',()=>loadWorkers());
 
   socket.on('worker:batch-sync',(data)=>{
+    // Ignorar eventos de otros parques
+    if(data.parkId && data.parkId !== currentPark) return;
     if(data.lastLat!=null&&data.lastLng!=null){
       const w=normalizeWorker({...workers[data.workerId||data.id]||{}, ...data, lat:data.lastLat, lng:data.lastLng, online:true, lastSeen:new Date().toISOString()});
       workers[w.workerId]=w;
@@ -838,6 +862,12 @@ async function loadWorkers(){
     const r=await fetch(`${BACKEND}/workers?park=${currentPark}`);
     if(!r.ok) return;
     const ws=await r.json();
+    // Eliminar del mapa y del dict los trabajadores que NO pertenecen a este parque
+    const freshIds=new Set(ws.map(w=>w.workerId||w.id));
+    Object.keys(workers).forEach(id=>{
+      if(!freshIds.has(id)){ removeMarker(id); delete workers[id]; }
+    });
+    // Agregar / actualizar los del parque actual
     ws.forEach(raw=>{
       const w=normalizeWorker(raw);
       workers[w.workerId]=w;
@@ -879,7 +909,10 @@ function switchPark(p){
     localStorage.setItem('map_state_'+prev,JSON.stringify({lat:c.lat,lng:c.lng,zoom:map.getZoom()}));
   }catch(e){}
 
-  // 2. Guardar KMZ actuales en localStorage ANTES de descargar del mapa
+  // 2a. Guardar KMZ en caché en memoria (con ArrayBuffers → imágenes completas al volver)
+  kmzCache[prev]=Object.entries(kmzLayers).map(([name,{kmlText,arrayBuffer}])=>({name,kmlText,arrayBuffer}));
+
+  // 2b. Guardar KMZ en localStorage como respaldo (solo KML text — rectángulos sin foto)
   saveKMZToStorage();
 
   currentPark=p;
