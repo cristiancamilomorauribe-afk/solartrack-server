@@ -15,6 +15,7 @@ const db = {
   locations: new Datastore({ filename: path.join(DATA_DIR, 'locations.db'), autoload: true }),
   parks:     new Datastore({ filename: path.join(DATA_DIR, 'parks.db'),     autoload: true }),
   syncLog:   new Datastore({ filename: path.join(DATA_DIR, 'synclog.db'),   autoload: true }),
+  kmzFiles:  new Datastore({ filename: path.join(DATA_DIR, 'kmzfiles.db'),  autoload: true }),
 };
 
 // Índices para consultas rápidas
@@ -289,6 +290,74 @@ function markWorkersOffline() {
   });
 }
 
+// ─── KMZ FILES ───────────────────────────────────────────────
+// Directorio para almacenar los binarios de los KMZ por parque
+const KMZ_DIR = path.join(DATA_DIR, 'kmz');
+if (!fs.existsSync(KMZ_DIR)) fs.mkdirSync(KMZ_DIR);
+
+/**
+ * Guarda un archivo KMZ en disco y su metadata en NeDB.
+ * @param {string} parkId
+ * @param {string} name      — nombre original del archivo (ej: "guayepo3.kmz")
+ * @param {Buffer} buffer    — contenido binario del archivo
+ */
+function saveKMZFile(parkId, name, buffer) {
+  return new Promise((resolve, reject) => {
+    // Sanitizar el nombre para evitar path traversal
+    const safeName = name.replace(/[^a-zA-Z0-9._\-]/g, '_');
+    const parkDir  = path.join(KMZ_DIR, parkId);
+    if (!fs.existsSync(parkDir)) fs.mkdirSync(parkDir, { recursive: true });
+    const filePath = path.join(parkDir, safeName);
+
+    fs.writeFile(filePath, buffer, (err) => {
+      if (err) return reject(err);
+
+      // Upsert de metadata (reemplaza si ya existe el mismo nombre)
+      db.kmzFiles.update(
+        { parkId, name: safeName },
+        { $set: { parkId, name: safeName, size: buffer.length, uploadedAt: new Date().toISOString() } },
+        { upsert: true },
+        (err2) => err2 ? reject(err2) : resolve({ parkId, name: safeName, size: buffer.length })
+      );
+    });
+  });
+}
+
+/**
+ * Lista los archivos KMZ de un parque (solo metadata, sin binario).
+ */
+function listKMZFiles(parkId) {
+  return new Promise((resolve, reject) => {
+    db.kmzFiles.find({ parkId }).sort({ uploadedAt: 1 }).exec(
+      (err, docs) => err ? reject(err) : resolve(docs)
+    );
+  });
+}
+
+/**
+ * Devuelve el Buffer de un archivo KMZ.
+ */
+function getKMZFile(parkId, name) {
+  return new Promise((resolve, reject) => {
+    const safeName = name.replace(/[^a-zA-Z0-9._\-]/g, '_');
+    const filePath = path.join(KMZ_DIR, parkId, safeName);
+    fs.readFile(filePath, (err, data) => err ? reject(err) : resolve(data));
+  });
+}
+
+/**
+ * Elimina un archivo KMZ de disco y su metadata de NeDB.
+ */
+function deleteKMZFile(parkId, name) {
+  return new Promise((resolve, reject) => {
+    const safeName = name.replace(/[^a-zA-Z0-9._\-]/g, '_');
+    const filePath = path.join(KMZ_DIR, parkId, safeName);
+    fs.unlink(filePath, () => {  // ignorar error si el archivo ya no existe
+      db.kmzFiles.remove({ parkId, name: safeName }, {}, (err) => err ? reject(err) : resolve());
+    });
+  });
+}
+
 module.exports = {
   db,
   insertLocation,
@@ -305,4 +374,9 @@ module.exports = {
   insertSyncLog,
   getRecentSyncLog,
   markWorkersOffline,
+  // KMZ
+  saveKMZFile,
+  listKMZFiles,
+  getKMZFile,
+  deleteKMZFile,
 };

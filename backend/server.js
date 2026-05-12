@@ -14,7 +14,8 @@ const { Server } = require('socket.io');
 const cors       = require('cors');
 const path       = require('path');
 
-const db                   = require('./db');
+const db = require('./db');
+const { saveKMZFile, listKMZFiles, getKMZFile, deleteKMZFile } = db;
 const locationRoutes       = require('./routes/locations');
 const workerRoutes         = require('./routes/workers');
 const { startAutoSync, getSyncStatus } = require('./sync/firebase');
@@ -35,7 +36,7 @@ app.set('io', io);
 
 // ─── MIDDLEWARE ──────────────────────────────────────────────
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '60mb' }));   // KMZ pueden ser hasta ~50 MB en base64
 
 // Servir la app maestra desde la carpeta public (Railway) o raíz (local)
 const publicDir = path.join(__dirname, 'public');
@@ -64,10 +65,65 @@ app.post('/batch-locations', (req, res, next) => {
 // SOS — alerta de emergencia
 app.post('/sos', (req, res) => {
   const data = req.body;
-  console.log(`[SOS] EMERGENCIA de ${data.workerName} en ${data.lat},${data.lng}`);
-  io.emit('location:update', { ...data, isSOS: true });
+  console.log(`[SOS] 🆘 EMERGENCIA de ${data.workerName} en parque ${data.parkId} — ${data.lat},${data.lng}`);
+  // Emitir a todos los supervisores de esa planta
+  io.to(`park:${data.parkId}`).emit('sos:alert', { ...data, isSOS: true, ts: new Date().toISOString() });
+  // También como location:update para que aparezca el marcador en el mapa
   io.to(`park:${data.parkId}`).emit('location:update', { ...data, isSOS: true });
+  db.insertSyncLog('sos', data.parkId, 1, 'alert', `SOS de ${data.workerName}`);
   res.json({ ok: true, received: true });
+});
+
+// ─── KMZ FILES ───────────────────────────────────────────────────────────────
+
+// GET /kmz/:parkId — lista de archivos para una planta
+app.get('/kmz/:parkId', async (req, res) => {
+  try {
+    const files = await listKMZFiles(req.params.parkId);
+    res.json(files.map(f => ({ name: f.name, size: f.size, uploadedAt: f.uploadedAt })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /kmz/:parkId — subir un archivo KMZ (body: { name, data: base64 })
+app.post('/kmz/:parkId', async (req, res) => {
+  try {
+    const { name, data } = req.body;
+    if (!name || !data) return res.status(400).json({ error: 'name y data requeridos' });
+    const buffer = Buffer.from(data, 'base64');
+    const saved  = await saveKMZFile(req.params.parkId, name, buffer);
+    console.log(`[KMZ] Guardado: ${req.params.parkId}/${saved.name} (${(saved.size/1024).toFixed(0)} KB)`);
+    res.json({ ok: true, name: saved.name, size: saved.size });
+  } catch (err) {
+    console.error('[KMZ] Error guardando:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /kmz/:parkId/:name — descargar un archivo KMZ (binario)
+app.get('/kmz/:parkId/:name', async (req, res) => {
+  try {
+    const buffer = await getKMZFile(req.params.parkId, req.params.name);
+    const isKML  = req.params.name.toLowerCase().endsWith('.kml');
+    res.set('Content-Type',        isKML ? 'application/vnd.google-earth.kml+xml' : 'application/vnd.google-earth.kmz');
+    res.set('Content-Disposition', `attachment; filename="${req.params.name}"`);
+    res.set('Content-Length',      buffer.length);
+    res.send(buffer);
+  } catch (err) {
+    res.status(404).json({ error: 'Archivo no encontrado' });
+  }
+});
+
+// DELETE /kmz/:parkId/:name — eliminar un archivo KMZ
+app.delete('/kmz/:parkId/:name', async (req, res) => {
+  try {
+    await deleteKMZFile(req.params.parkId, req.params.name);
+    console.log(`[KMZ] Eliminado: ${req.params.parkId}/${req.params.name}`);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Trabajadores

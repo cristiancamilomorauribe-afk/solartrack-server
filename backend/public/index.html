@@ -352,27 +352,44 @@ function updateKMZList(){
   statusEl.classList.add('show');
 }
 
-// ── KMZ: guardar en localStorage (sin imágenes — solo KML text) ──
+// ── KMZ: subir archivo al servidor ──────────────────────────────────────────
+// Se llama después de renderizar — envía el ArrayBuffer original al servidor
+async function uploadKMZToServer(name, arrayBuffer){
+  if(!arrayBuffer) return; // archivos KML sin ZIP no se suben (no tienen binario)
+  try{
+    const base64=btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const res=await fetch(`${BACKEND}/kmz/${currentPark}`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,data:base64}),
+    });
+    if(res.ok) console.log('[KMZ] ✅ Subido al servidor:',name);
+    else        console.warn('[KMZ] ⚠ Error subiendo:',name,res.status);
+  }catch(e){ console.warn('[KMZ] Error de red al subir:',e.message); }
+}
+
+// ── KMZ: guardar en localStorage como respaldo rápido (solo texto KML) ──
 function saveKMZToStorage(){
   try{
     const files=Object.entries(kmzLayers).map(([name,{kmlText}])=>({name,kml:kmlText||''}));
-    if(files.length){
-      localStorage.setItem('kmz_files_'+currentPark,JSON.stringify(files));
-    } else {
-      localStorage.removeItem('kmz_files_'+currentPark);
-    }
-    // Limpiar claves del formato antiguo
+    if(files.length) localStorage.setItem('kmz_files_'+currentPark,JSON.stringify(files));
+    else             localStorage.removeItem('kmz_files_'+currentPark);
     localStorage.removeItem('kmz_kml_'+currentPark);
     localStorage.removeItem('kmz_name_'+currentPark);
   }catch(e){ console.warn('[KMZ] localStorage lleno:',e.message); }
 }
 
-// ── KMZ: quitar un archivo individual ──
-function removeKMZ(filename){
+// ── KMZ: quitar un archivo individual (del mapa + servidor) ──
+async function removeKMZ(filename){
   if(kmzLayers[filename]?.layer) map.removeLayer(kmzLayers[filename].layer);
   delete kmzLayers[filename];
   updateKMZList();
   saveKMZToStorage();
+  // Eliminar del servidor
+  try{
+    await fetch(`${BACKEND}/kmz/${currentPark}/${encodeURIComponent(filename)}`,{method:'DELETE'});
+    console.log('[KMZ] 🗑 Eliminado del servidor:',filename);
+  }catch(e){ console.warn('[KMZ] Error eliminando del servidor:',e.message); }
 }
 
 // ── KMZ: quitar todos (botón usuario) ──
@@ -409,12 +426,14 @@ async function loadKMZFile(input){
         kmlText=await file.text();
       }
       await renderKML(kmlText, file.name, zip, arrayBuffer);
+      // Subir al servidor para persistencia permanente
+      await uploadKMZToServer(file.name, arrayBuffer);
     }catch(e){
       console.error('[KMZ] Error cargando',file.name,e.message);
       alert(`Error al leer ${file.name}: ${e.message}`);
     }
   }
-  saveKMZToStorage();
+  saveKMZToStorage();  // respaldo local
   input.value='';
 }
 
@@ -581,10 +600,11 @@ async function renderKML(kmlText, fileName, zip, arrayBuffer){
 }
 
 // restoreKMZ: restaura capas KMZ para el parque actual
-// Prioridad: 1) caché en memoria (tiene imágenes) → 2) localStorage (solo contornos)
+// Prioridad: 1) caché en memoria (instantáneo, con imágenes)
+//            2) servidor (descarga el KMZ original con imágenes — persistente)
+//            3) localStorage (solo texto KML, contornos sin foto — fallback offline)
 async function restoreKMZ(){
-  // 1. Caché en memoria — se conserva al cambiar de parque en la misma sesión.
-  //    Contiene ArrayBuffer original → podemos reconstruir imágenes completas.
+  // 1. Caché en memoria — park switch dentro de la misma sesión
   const cached=kmzCache[currentPark];
   if(cached&&cached.length>0){
     for(const {name,kmlText,arrayBuffer} of cached){
@@ -595,13 +615,40 @@ async function restoreKMZ(){
         } else if(kmlText){
           await renderKML(kmlText,name,null,null);
         }
-      }catch(e){ console.warn('[KMZ] Error restaurando caché:',name,e.message); }
+      }catch(e){ console.warn('[KMZ] Error caché:',name,e.message); }
     }
     updateKMZList();
     return;
   }
 
-  // 2. localStorage — solo texto KML (sin imágenes → muestra rectángulos de área)
+  // 2. Servidor — descarga los KMZ almacenados permanentemente
+  try{
+    const r=await fetch(`${BACKEND}/kmz/${currentPark}`);
+    if(r.ok){
+      const files=await r.json();
+      if(files.length>0){
+        const statusEl=document.getElementById('kmz-status');
+        statusEl.textContent=`⏳ Restaurando ${files.length} capa(s) del servidor…`;
+        statusEl.classList.add('show');
+        for(const {name} of files){
+          try{
+            const fr=await fetch(`${BACKEND}/kmz/${currentPark}/${encodeURIComponent(name)}`);
+            if(!fr.ok) continue;
+            const arrayBuffer=await fr.arrayBuffer();
+            const zip=await JSZip.loadAsync(arrayBuffer);
+            const kmlEntry=Object.values(zip.files).find(f=>f.name.toLowerCase().endsWith('.kml'));
+            if(!kmlEntry) continue;
+            const kmlText=await kmlEntry.async('text');
+            await renderKML(kmlText,name,zip,arrayBuffer);
+          }catch(e){ console.warn('[KMZ] Error descargando del servidor:',name,e.message); }
+        }
+        updateKMZList();
+        return;
+      }
+    }
+  }catch(e){ console.warn('[KMZ] Servidor no disponible, usando localStorage:',e.message); }
+
+  // 3. localStorage — fallback offline (solo contornos rectangulares)
   try{
     const filesJson=localStorage.getItem('kmz_files_'+currentPark);
     if(filesJson){
@@ -612,14 +659,10 @@ async function restoreKMZ(){
       updateKMZList();
       return;
     }
-    // Formato antiguo (compatibilidad)
     const kmlText=localStorage.getItem('kmz_kml_'+currentPark);
     const name=localStorage.getItem('kmz_name_'+currentPark)||'parque.kmz';
-    if(kmlText){
-      await renderKML(kmlText,name,null,null);
-      updateKMZList();
-    }
-  }catch(e){ console.warn('[KMZ] Error restaurando localStorage:',e.message); }
+    if(kmlText){ await renderKML(kmlText,name,null,null); updateKMZList(); }
+  }catch(e){ console.warn('[KMZ] Error localStorage:',e.message); }
 }
 
 // ── NORMALIZAR worker del servidor ──
@@ -831,6 +874,12 @@ function initSocket(){
     renderWorkers();
   });
 
+  // Evento dedicado de SOS (nuevo — más confiable)
+  socket.on('sos:alert',(data)=>{
+    if(data.parkId && data.parkId !== currentPark) return;
+    showSOS(normalizeWorker(data));
+  });
+
   socket.on('location:update',(data)=>{
     // Ignorar eventos de otros parques (belt-and-suspenders además de los rooms de Socket.IO)
     if(data.parkId && data.parkId !== currentPark) return;
@@ -877,17 +926,107 @@ async function loadWorkers(){
   }catch(e){ console.warn('[loadWorkers]',e.message); }
 }
 
+// ── NOTIFICACIONES ──────────────────────────────────────────────────────────
+let _flashInterval=null, _sosCount=0, _origTitle='SolarTrack — Maestro';
+
+// Pedir permiso al supervisor para mostrar notificaciones del navegador
+function requestNotifPermission(){
+  if('Notification' in window && Notification.permission==='default'){
+    Notification.requestPermission();
+  }
+}
+
+// Sonido de alarma generado por Web Audio API (sin archivo externo)
+function playSOSSound(){
+  try{
+    const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    const beep=(freq,start,dur)=>{
+      const o=ctx.createOscillator(), g=ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value=freq; o.type='square';
+      g.gain.setValueAtTime(0.3,ctx.currentTime+start);
+      g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+start+dur);
+      o.start(ctx.currentTime+start); o.stop(ctx.currentTime+start+dur+0.05);
+    };
+    beep(880,0,0.15); beep(660,0.2,0.15); beep(880,0.4,0.15);
+    beep(660,0.6,0.15); beep(880,0.8,0.15); beep(660,1.0,0.15);
+  }catch(e){}
+}
+
+// Parpadeo del título de la pestaña del navegador
+function startFlashTitle(msg){
+  if(_flashInterval) return; // ya está parpadeando
+  let on=true;
+  _flashInterval=setInterval(()=>{
+    document.title=on ? msg : _origTitle;
+    on=!on;
+  },800);
+}
+function stopFlashTitle(){
+  if(_flashInterval){ clearInterval(_flashInterval); _flashInterval=null; }
+  document.title=_origTitle;
+}
+
+// Notificación del SO (aparece aunque el navegador esté minimizado)
+function showBrowserNotif(title,body,onClick){
+  if(!('Notification' in window)||Notification.permission!=='granted') return;
+  const n=new Notification(title,{
+    body, icon:'/icons/icon-192.png',
+    requireInteraction:true,  // no se auto-cierra
+    tag:'solartrack-sos'      // reemplaza la anterior en vez de apilar
+  });
+  if(onClick) n.onclick=()=>{ window.focus(); onClick(); n.close(); };
+}
+
+// Badge en el botón de la pestaña SOS
+function updateSOSBadge(){
+  const btn=document.querySelector('.tab[onclick*="sos"]');
+  if(!btn) return;
+  if(_sosCount>0){
+    btn.textContent=`🆘 Alertas (${_sosCount})`;
+    btn.style.color='var(--red)';
+  } else {
+    btn.textContent='🆘 Alertas';
+    btn.style.color='';
+  }
+}
+
 // ── SOS ──
 function showSOS(data){
-  const alert=document.getElementById('sos-alert');
-  document.getElementById('sos-text').textContent=`🆘 EMERGENCIA — ${data.workerName||data.workerName} necesita ayuda!`;
-  alert.classList.add('show');
+  // 1. Banner en la app
+  const alertEl=document.getElementById('sos-alert');
+  document.getElementById('sos-text').textContent=`🆘 EMERGENCIA — ${data.workerName||'Trabajador'} necesita ayuda!`;
+  alertEl.classList.add('show');
+
+  // 2. Registro en lista + badge
   sosList.unshift({...data,ts:new Date().toISOString()});
+  _sosCount++;
   renderSOSList();
-  try{navigator.vibrate&&navigator.vibrate([400,200,400,200,400])}catch(e){}
-  try{new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAA').play()}catch(e){}
+  updateSOSBadge();
+
+  // 3. Vibración del dispositivo (tablet/móvil del supervisor)
+  try{navigator.vibrate&&navigator.vibrate([400,200,400,200,400,200,800])}catch(e){}
+
+  // 4. Sonido de alarma
+  playSOSSound();
+
+  // 5. Parpadeo del título de la pestaña
+  startFlashTitle('🆘 EMERGENCIA — SolarTrack');
+
+  // 6. Notificación del SO (visible aunque el navegador esté minimizado)
+  showBrowserNotif(
+    '🆘 EMERGENCIA — SolarTrack',
+    `${data.workerName||'Trabajador'} necesita ayuda urgente.\nParque: ${PARK_NAMES[data.parkId]||data.parkId}`,
+    ()=>{ switchTab('sos', document.querySelector('.tab[onclick*="sos"]')); }
+  );
 }
-function closeSOS(){ document.getElementById('sos-alert').classList.remove('show'); }
+
+function closeSOS(){
+  document.getElementById('sos-alert').classList.remove('show');
+  stopFlashTitle();
+  _sosCount=0;
+  updateSOSBadge();
+}
 function renderSOSList(){
   const el=document.getElementById('sos-list');
   if(!sosList.length){el.innerHTML='<p style="color:var(--muted);font-size:13px;text-align:center;margin-top:20px">Sin alertas de emergencia</p>';return;}
@@ -993,6 +1132,7 @@ renderSOSList();
 restoreOverlay();
 restoreKMZ(); // async, no bloqueante
 updateKMZList();
+requestNotifPermission(); // pedir permiso de notificaciones al supervisor
 // Polling cada 15s para asegurar datos actualizados
 setInterval(loadWorkers, 15000);
 </script>
