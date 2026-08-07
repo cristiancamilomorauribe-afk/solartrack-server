@@ -2,12 +2,9 @@ services:
   - type: web
     name: solartrack-server
     runtime: node
-    rootDir: backend
-    buildCommand: npm install
-    startCommand: node server.js
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && node server.js
     plan: free
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
