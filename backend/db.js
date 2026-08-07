@@ -29,13 +29,13 @@ db.parks.ensureIndex({ fieldName: 'id', unique: true });
 
 // ─── SEED — parques iniciales ────────────────────────────────
 const PARKS = [
-  { id:'P1', name:'Parque Solar 1 — Sevilla Norte',  centerLat:37.45, centerLng:-5.98 },
-  { id:'P2', name:'Parque Solar 2 — Sevilla Sur',    centerLat:37.28, centerLng:-6.02 },
-  { id:'P3', name:'Parque Solar 3 — Cádiz Este',     centerLat:36.52, centerLng:-6.28 },
-  { id:'P4', name:'Parque Solar 4 — Huelva',         centerLat:37.26, centerLng:-6.95 },
-  { id:'P5', name:'Parque Solar 5 — Córdoba',        centerLat:37.88, centerLng:-4.78 },
-  { id:'P6', name:'Parque Solar 6 — Málaga',         centerLat:36.72, centerLng:-4.42 },
-  { id:'P7', name:'Parque Solar 7 — Almería',        centerLat:36.84, centerLng:-2.46 },
+  { id:'P1', name:'La Loma',        centerLat:9.933,  centerLng:-73.267 },
+  { id:'P2', name:'El Paso',        centerLat:9.650,  centerLng:-73.550 },
+  { id:'P3', name:'Fundación',      centerLat:10.516, centerLng:-74.183 },
+  { id:'P4', name:'Guayepo I & II', centerLat:10.350, centerLng:-74.900 },
+  { id:'P5', name:'Guayepo III',    centerLat:10.360, centerLng:-74.910 },
+  { id:'P6', name:'Atlántico',      centerLat:10.850, centerLng:-74.783 },
+  { id:'P7', name:'Valledupar',     centerLat:10.477, centerLng:-73.250 },
 ];
 
 PARKS.forEach(park => {
