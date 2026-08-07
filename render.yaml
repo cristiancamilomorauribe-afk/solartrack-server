@@ -3,7 +3,7 @@ services:
     name: solartrack-server
     runtime: node
     buildCommand: cd backend && npm install
-    startCommand: cd backend && node server.js
+    startCommand: node backend/server.js
     plan: free
     envVars:
       - key: NODE_ENV
