@@ -140,9 +140,23 @@
   <button id="sos-close" onclick="closeSOS()">Cerrar</button>
 </div>
 
-<!-- Banner activar alertas — se muestra hasta que el supervisor habilita audio+notif -->
-<div id="alert-banner" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#7f1d1d;border:2px solid #ef4444;border-radius:12px;padding:12px 20px;z-index:1000;text-align:center;cursor:pointer;box-shadow:0 4px 20px rgba(239,68,68,0.5)" onclick="activateAlerts()">
-  <p style="color:#fca5a5;font-weight:700;font-size:14px;margin:0">🔔 Toca aquí para activar el sonido y las notificaciones de emergencia</p>
+<!-- Modal obligatorio — activa audio y notificaciones antes de usar el dashboard -->
+<div id="audio-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:2000;display:flex;align-items:center;justify-content:center">
+  <div style="background:#1e293b;border:2px solid #ef4444;border-radius:16px;padding:32px;max-width:380px;width:90%;text-align:center;box-shadow:0 8px 40px rgba(239,68,68,0.4)">
+    <div style="font-size:48px;margin-bottom:12px">🔔</div>
+    <h2 style="color:#f1f5f9;font-size:18px;margin:0 0 8px">Activar alertas de emergencia</h2>
+    <p style="color:#94a3b8;font-size:13px;margin:0 0 24px;line-height:1.5">
+      El supervisor debe activar el sonido antes de iniciar el turno.<br>
+      Las alarmas SOS no funcionan sin esta acción.
+    </p>
+    <button onclick="activateAlerts()" style="background:#ef4444;color:#fff;border:none;padding:14px 32px;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;width:100%;margin-bottom:10px">
+      🔊 Activar sonido y notificaciones
+    </button>
+    <button onclick="testSOSSound()" style="background:#334155;color:#94a3b8;border:1px solid #475569;padding:10px 24px;border-radius:8px;font-size:13px;cursor:pointer;width:100%">
+      🔉 Probar sonido de alarma
+    </button>
+    <p id="modal-status" style="color:#22c55e;font-size:12px;margin:12px 0 0;min-height:16px"></p>
+  </div>
 </div>
 
 <!-- Install Banner -->
@@ -933,45 +947,61 @@ async function loadWorkers(){
 
 // ── NOTIFICACIONES ──────────────────────────────────────────────────────────
 let _flashInterval=null, _sosCount=0, _origTitle='SolarTrack — Maestro';
-let _audioCtx=null; // contexto de audio global — se crea tras interacción del usuario
+let _audioCtx=null;
 
-// Desbloquear audio + notificaciones (requiere interacción del usuario)
+// Mostrar modal obligatorio al iniciar
+function showAudioModal(){
+  document.getElementById('audio-modal').style.display='flex';
+}
+
+// Prueba de sonido desde el modal (antes de aceptar)
+function testSOSSound(){
+  try{
+    if(!_audioCtx) _audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    if(_audioCtx.state==='suspended') _audioCtx.resume();
+    playSOSSound();
+    const st=document.getElementById('modal-status');
+    if(st) st.textContent='✓ Sonido de prueba reproducido';
+  }catch(e){
+    const st=document.getElementById('modal-status');
+    if(st){ st.style.color='#ef4444'; st.textContent='✗ Error: '+e.message; }
+  }
+}
+
+// Activar alertas — cierra el modal y deja el sistema listo
 async function activateAlerts(){
-  // 1. Crear/reanudar AudioContext
+  const st=document.getElementById('modal-status');
   try{
     if(!_audioCtx) _audioCtx=new(window.AudioContext||window.webkitAudioContext)();
     if(_audioCtx.state==='suspended') await _audioCtx.resume();
     // Beep de confirmación
     const o=_audioCtx.createOscillator(), g=_audioCtx.createGain();
     o.connect(g); g.connect(_audioCtx.destination);
-    o.frequency.value=880; o.type='sine';
-    g.gain.setValueAtTime(0.2,_audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001,_audioCtx.currentTime+0.3);
-    o.start(_audioCtx.currentTime); o.stop(_audioCtx.currentTime+0.35);
-  }catch(e){}
-
-  // 2. Solicitar permiso de notificaciones
-  if('Notification' in window && Notification.permission!=='granted'){
-    const perm=await Notification.requestPermission();
-    if(perm==='granted'){
-      new Notification('SolarTrack — Alertas activadas',{
-        body:'Recibirás notificaciones de emergencia aunque el navegador esté minimizado.',
-        icon:'/icons/icon-192.png', tag:'solartrack-test'
-      });
-    }
+    o.frequency.value=660; o.type='sine';
+    g.gain.setValueAtTime(0.3,_audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,_audioCtx.currentTime+0.4);
+    o.start(_audioCtx.currentTime); o.stop(_audioCtx.currentTime+0.45);
+    if(st){ st.style.color='#22c55e'; st.textContent='✓ Sonido activado correctamente'; }
+  }catch(e){
+    if(st){ st.style.color='#ef4444'; st.textContent='✗ No se pudo activar el sonido: '+e.message; }
   }
 
-  // 3. Ocultar banner
-  document.getElementById('alert-banner').style.display='none';
-  localStorage.setItem('alertsActivated','1');
+  // Solicitar permiso de notificaciones
+  if('Notification' in window && Notification.permission!=='granted'){
+    const perm=await Notification.requestPermission();
+    if(perm==='granted' && st) st.textContent='✓ Sonido y notificaciones activados';
+  }
+
+  // Cerrar modal después de 800ms para que el supervisor vea la confirmación
+  setTimeout(()=>{ document.getElementById('audio-modal').style.display='none'; }, 800);
 }
+
+// Re-unlock automático si el AudioContext queda suspendido (cambio de pestaña, etc.)
+setInterval(()=>{ if(_audioCtx && _audioCtx.state==='suspended') _audioCtx.resume(); }, 5000);
 
 // Pedir permiso al supervisor para mostrar notificaciones del navegador
 function requestNotifPermission(){
-  // Mostrar banner si el audio/notif no está activado aún
-  if(localStorage.getItem('alertsActivated')!=='1'){
-    document.getElementById('alert-banner').style.display='block';
-  }
+  showAudioModal();
 }
 
 // Sonido de alarma generado por Web Audio API (sin archivo externo)
