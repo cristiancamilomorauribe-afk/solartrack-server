@@ -1201,9 +1201,11 @@ renderSOSList();
 restoreOverlay();
 restoreKMZ(); // async, no bloqueante
 updateKMZList();
-requestNotifPermission(); // pedir permiso de notificaciones al supervisor
+requestNotifPermission(); // muestra modal obligatorio de activar sonido
 // Polling cada 15s para asegurar datos actualizados
 setInterval(loadWorkers, 15000);
+// Keep-alive: ping al servidor cada 8 min para evitar que Render se duerma
+setInterval(()=>{ fetch(BACKEND+'/ping').catch(()=>{}); }, 8*60*1000);
 </script>
 </body>
 </html>
