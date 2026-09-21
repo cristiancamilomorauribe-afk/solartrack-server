@@ -807,7 +807,7 @@ function updateMarker(w){
     markers[wid]=L.marker(pos,{icon:workerIcon(w)}).addTo(map);
   }
   markers[wid].bindPopup(
-    `<b>${w.workerName}</b><br>${w.zoneName||''}<br>📍 ${w.lat.toFixed(5)}, ${w.lng.toFixed(5)}<br>Precisión: ${Math.round(w.accuracy||0)}m<br>${w.online?'🟢 En línea':'🔴 Offline'}`
+    `<b>${w.workerName}</b><br>${PARK_NAMES[w.parkId]||''}<br>📍 ${w.lat.toFixed(5)}, ${w.lng.toFixed(5)}<br>Precisión: ${Math.round(w.accuracy||0)}m<br>${w.online?'🟢 En línea':'🔴 Offline'}`
   );
 }
 
@@ -829,7 +829,7 @@ function renderWorkers(){
       <div class="worker-dot ${w.online?'dot-online':'dot-offline'}"></div>
       <div class="worker-info">
         <div class="worker-name">${w.workerName||'Trabajador'}</div>
-        <div class="worker-zone">${w.zoneName||w.parkId||''}</div>
+        <div class="worker-zone">${PARK_NAMES[w.parkId]||w.parkId||''}</div>
       </div>
       <div class="worker-time">${w.online?'● Ahora':formatTime(w.lastSeen)}</div>
     </div>`).join('');
