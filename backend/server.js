@@ -16,6 +16,7 @@ const path       = require('path');
 
 const db = require('./db');
 const { saveKMZFile, listKMZFiles, getKMZFile, deleteKMZFile } = db;
+const gh = require('./services/kmz-storage');
 const locationRoutes       = require('./routes/locations');
 const workerRoutes         = require('./routes/workers');
 const { startAutoSync, getSyncStatus } = require('./sync/firebase');
@@ -79,6 +80,11 @@ app.post('/sos', (req, res) => {
 // GET /kmz/:parkId — lista de archivos para una planta
 app.get('/kmz/:parkId', async (req, res) => {
   try {
+    // Si GitHub está habilitado, su lista es la fuente de verdad
+    if (gh.enabled()) {
+      const files = await gh.ghList(req.params.parkId);
+      return res.json(files);
+    }
     const files = await listKMZFiles(req.params.parkId);
     res.json(files.map(f => ({ name: f.name, size: f.size, uploadedAt: f.uploadedAt })));
   } catch (err) {
@@ -92,7 +98,10 @@ app.post('/kmz/:parkId', async (req, res) => {
     const { name, data } = req.body;
     if (!name || !data) return res.status(400).json({ error: 'name y data requeridos' });
     const buffer = Buffer.from(data, 'base64');
-    const saved  = await saveKMZFile(req.params.parkId, name, buffer);
+    // Guardar en disco (caché local)
+    const saved = await saveKMZFile(req.params.parkId, name, buffer);
+    // Subir a GitHub en paralelo (no bloquea la respuesta)
+    gh.ghUpload(req.params.parkId, saved.name, buffer).catch(() => {});
     console.log(`[KMZ] Guardado: ${req.params.parkId}/${saved.name} (${(saved.size/1024).toFixed(0)} KB)`);
     res.json({ ok: true, name: saved.name, size: saved.size });
   } catch (err) {
@@ -104,8 +113,19 @@ app.post('/kmz/:parkId', async (req, res) => {
 // GET /kmz/:parkId/:name — descargar un archivo KMZ (binario)
 app.get('/kmz/:parkId/:name', async (req, res) => {
   try {
-    const buffer = await getKMZFile(req.params.parkId, req.params.name);
-    const isKML  = req.params.name.toLowerCase().endsWith('.kml');
+    let buffer = null;
+    // 1. Disco local (caché rápida)
+    try { buffer = await getKMZFile(req.params.parkId, req.params.name); } catch {}
+    // 2. GitHub (si el disco lo perdió por reinicio)
+    if (!buffer && gh.enabled()) {
+      buffer = await gh.ghGet(req.params.parkId, req.params.name);
+      if (buffer) {
+        // Guardar en caché local para próximas peticiones
+        saveKMZFile(req.params.parkId, req.params.name, buffer).catch(() => {});
+      }
+    }
+    if (!buffer) return res.status(404).json({ error: 'Archivo no encontrado' });
+    const isKML = req.params.name.toLowerCase().endsWith('.kml');
     res.set('Content-Type',        isKML ? 'application/vnd.google-earth.kml+xml' : 'application/vnd.google-earth.kmz');
     res.set('Content-Disposition', `attachment; filename="${req.params.name}"`);
     res.set('Content-Length',      buffer.length);
@@ -119,6 +139,7 @@ app.get('/kmz/:parkId/:name', async (req, res) => {
 app.delete('/kmz/:parkId/:name', async (req, res) => {
   try {
     await deleteKMZFile(req.params.parkId, req.params.name);
+    gh.ghDelete(req.params.parkId, req.params.name).catch(() => {});
     console.log(`[KMZ] Eliminado: ${req.params.parkId}/${req.params.name}`);
     res.json({ ok: true });
   } catch (err) {
@@ -207,6 +228,14 @@ if (process.env.FIREBASE_URL) {
 } else {
   console.log('[Firebase] FIREBASE_URL no configurado — sync en la nube deshabilitado');
   console.log('[Firebase] Para activar: set FIREBASE_URL=https://tu-proyecto.firebaseio.com');
+}
+
+// ─── RESTORE KMZ FROM GITHUB ON STARTUP ─────────────────────
+if (gh.enabled()) {
+  const KMZ_DIR = require('path').join(__dirname, 'data', 'kmz');
+  gh.restoreFromGitHub(KMZ_DIR).catch(e => console.error('[KMZ restore]', e.message));
+} else {
+  console.log('[KMZ] GITHUB_TOKEN no configurado — persistencia en disco solamente (efímero en Render free)');
 }
 
 // ─── START ───────────────────────────────────────────────────
