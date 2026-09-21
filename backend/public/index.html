@@ -217,7 +217,7 @@
       <!-- Lista dinámica de archivos cargados -->
       <div id="kmz-file-list"></div>
       <div id="kmz-status"></div>
-      <button class="op-btn op-clear" style="margin-top:6px" onclick="clearAllKMZ()">✕ Quitar todos del mapa</button>
+      <button class="op-btn op-clear" style="margin-top:6px" onclick="clearAllKMZ()">🗑 Eliminar todos del servidor</button>
     </div>
 
     <!-- Imagen tab -->
@@ -397,12 +397,22 @@ async function removeKMZ(filename){
   }catch(e){ console.warn('[KMZ] Error eliminando del servidor:',e.message); }
 }
 
-// ── KMZ: quitar todos (botón usuario) ──
-function clearAllKMZ(){
+// ── KMZ: quitar todos (botón usuario) — borra del mapa, localStorage Y servidor ──
+async function clearAllKMZ(){
+  const filenames=Object.keys(kmzLayers);
+  if(!filenames.length) return;
+  if(!confirm(`¿Eliminar los ${filenames.length} archivo(s) KMZ del servidor?\n\nEsto los borrará permanentemente para todos los usuarios.`)) return;
   Object.values(kmzLayers).forEach(({layer})=>{ if(layer) map.removeLayer(layer); });
   kmzLayers={};
   updateKMZList();
   saveKMZToStorage();
+  // Eliminar también del servidor para que no reaparezcan al actualizar
+  for(const name of filenames){
+    try{
+      await fetch(`${BACKEND}/kmz/${currentPark}/${encodeURIComponent(name)}`,{method:'DELETE'});
+      console.log('[KMZ] 🗑 Eliminado del servidor:',name);
+    }catch(e){ console.warn('[KMZ] Error eliminando del servidor:',name,e.message); }
+  }
 }
 
 // ── KMZ: descargar del mapa SIN tocar localStorage (para switchPark) ──
@@ -648,12 +658,20 @@ async function restoreKMZ(){
           }catch(e){ console.warn('[KMZ] Error descargando del servidor:',name,e.message); }
         }
         updateKMZList();
+        // Sincronizar localStorage con el estado real del servidor
+        saveKMZToStorage();
         return;
       }
+      // Servidor respondió OK pero lista vacía → limpiar localStorage stale
+      // (evita que archivos eliminados del servidor vuelvan desde caché local)
+      localStorage.removeItem('kmz_files_'+currentPark);
+      localStorage.removeItem('kmz_kml_'+currentPark);
+      localStorage.removeItem('kmz_name_'+currentPark);
+      return;
     }
   }catch(e){ console.warn('[KMZ] Servidor no disponible, usando localStorage:',e.message); }
 
-  // 3. localStorage — fallback offline (solo contornos rectangulares)
+  // 3. localStorage — fallback offline SOLO si el servidor no estuvo disponible
   try{
     const filesJson=localStorage.getItem('kmz_files_'+currentPark);
     if(filesJson){
@@ -816,7 +834,17 @@ function removeMarker(id){ if(markers[id]){map.removeLayer(markers[id]);delete m
 // ── WORKER LIST ──
 function renderWorkers(){
   const list=document.getElementById('worker-list');
-  const all=Object.values(workers).sort((a,b)=>(b.online?1:0)-(a.online?1:0));
+  // Ordenar: online primero, luego más reciente
+  let all=Object.values(workers).sort((a,b)=>(b.online?1:0)-(a.online?1:0)||((b.lastSeen||'')>(a.lastSeen||'')?1:-1));
+  // Deduplicar por nombre+parque: si el mismo trabajador tiene 2 IDs (reinstalación APK),
+  // conservar solo el primero (que ya está ordenado: online > offline > más reciente)
+  const _seen=new Set();
+  all=all.filter(w=>{
+    const key=((w.workerName||'?').toLowerCase().trim())+'_'+(w.parkId||'');
+    if(_seen.has(key)) return false;
+    _seen.add(key);
+    return true;
+  });
   if(!all.length){
     list.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Sin trabajadores conectados.<br>Esperando datos GPS...</div>';
     document.getElementById('stat-online').textContent='0';
