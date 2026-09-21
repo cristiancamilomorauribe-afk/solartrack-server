@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
-  <title>SolarTrack — Maestro</title>
+  <title>Aura — Maestro</title>
   <link rel="manifest" href="/manifest-master.json"/>
   <meta name="theme-color" content="#f59e0b"/>
   <meta name="mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
-  <meta name="apple-mobile-web-app-title" content="SolarTrack"/>
+  <meta name="apple-mobile-web-app-title" content="Aura"/>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
@@ -25,13 +25,7 @@
     /* ── TOP BAR ── */
     #topbar{background:var(--card);border-bottom:1px solid var(--border);padding:8px 14px;display:flex;align-items:center;gap:12px;flex-shrink:0;z-index:100}
     .enel-logo{display:flex;align-items:center;gap:10px;flex-shrink:0}
-    /* Wordmark Enel — caja blanca redondeada con letras de marca */
-    .enel-box{background:#fff;border-radius:5px;padding:3px 9px 4px 9px;display:inline-flex;align-items:baseline;gap:0;line-height:1}
-    .enel-ltr{font-family:'Arial Black','Arial Bold',Arial,sans-serif;font-weight:900;font-size:23px;line-height:1;letter-spacing:-0.5px}
-    .el-e1{color:#D62B1F}
-    .el-n{color:#818285}
-    .el-e2{background:linear-gradient(135deg,#E91E8C 40%,#1E78C8 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-    .el-l{background:linear-gradient(180deg,#9EA0A3 0%,#9EA0A3 38%,#00A8B0 38%,#00A8B0 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .enel-img{height:38px;width:auto;display:block}
     .enel-divider{width:1px;height:28px;background:var(--border)}
     .brand-stack{display:flex;flex-direction:column;justify-content:center}
     #topbar .title{font-weight:700;color:var(--solar);font-size:14px;line-height:1.2}
@@ -147,24 +141,18 @@
 
 <!-- Install Banner -->
 <div id="install-banner">
-  <p>📲 Instala SolarTrack Maestro como app</p>
+  <p>📲 Instala Aura Maestro como app</p>
   <button id="install-btn" onclick="installApp()">Instalar</button>
   <button id="install-close" onclick="document.getElementById('install-banner').classList.remove('show')">×</button>
 </div>
 
 <!-- Top Bar -->
 <div id="topbar">
-  <!-- Enel wordmark — colores de marca oficiales -->
   <div class="enel-logo">
-    <div class="enel-box" aria-label="Enel">
-      <span class="enel-ltr el-e1">e</span>
-      <span class="enel-ltr el-n">n</span>
-      <span class="enel-ltr el-e2">e</span>
-      <span class="enel-ltr el-l">l</span>
-    </div>
+    <img class="enel-img" src="/enel-logo.png" alt="Enel"/>
     <div class="enel-divider"></div>
     <div class="brand-stack">
-      <div class="title">SolarTrack</div>
+      <div class="title">Aura</div>
       <div class="subtitle">Maestro de campo</div>
     </div>
   </div>
@@ -969,7 +957,7 @@ async function loadWorkers(){
 }
 
 // ── NOTIFICACIONES ──────────────────────────────────────────────────────────
-let _flashInterval=null, _sosCount=0, _origTitle='SolarTrack — Maestro';
+let _flashInterval=null, _sosCount=0, _origTitle='Aura — Maestro';
 let _audioCtx=null, _audioUnlocked=false;
 
 // Desbloquear AudioContext en el primer toque/click en cualquier parte de la página
@@ -1038,7 +1026,7 @@ function showBrowserNotif(title,body,onClick){
   const n=new Notification(title,{
     body, icon:'/icons/icon-192.png',
     requireInteraction:true,  // no se auto-cierra
-    tag:'solartrack-sos'      // reemplaza la anterior en vez de apilar
+    tag:'aura-sos'      // reemplaza la anterior en vez de apilar
   });
   if(onClick) n.onclick=()=>{ window.focus(); onClick(); n.close(); };
 }
@@ -1076,11 +1064,11 @@ function showSOS(data){
   playSOSSound();
 
   // 5. Parpadeo del título de la pestaña
-  startFlashTitle('🆘 EMERGENCIA — SolarTrack');
+  startFlashTitle('🆘 EMERGENCIA — Aura');
 
   // 6. Notificación del SO (visible aunque el navegador esté minimizado)
   showBrowserNotif(
-    '🆘 EMERGENCIA — SolarTrack',
+    '🆘 EMERGENCIA — Aura',
     `${data.workerName||'Trabajador'} necesita ayuda urgente.\nParque: ${PARK_NAMES[data.parkId]||data.parkId}`,
     ()=>{ switchTab('sos', document.querySelector('.tab[onclick*="sos"]')); }
   );
