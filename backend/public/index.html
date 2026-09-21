@@ -362,7 +362,12 @@ function updateKMZList(){
 async function uploadKMZToServer(name, arrayBuffer){
   if(!arrayBuffer) return; // archivos KML sin ZIP no se suben (no tienen binario)
   try{
-    const base64=btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    // Codificación en bloques de 8 KB para evitar "Maximum call stack size exceeded"
+    // con archivos grandes (el spread ...new Uint8Array falla en >~10MB)
+    const bytes=new Uint8Array(arrayBuffer);
+    let binary=''; const chunk=8192;
+    for(let i=0;i<bytes.length;i+=chunk) binary+=String.fromCharCode(...bytes.subarray(i,i+chunk));
+    const base64=btoa(binary);
     const res=await fetch(`${BACKEND}/kmz/${currentPark}`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -372,6 +377,13 @@ async function uploadKMZToServer(name, arrayBuffer){
     else        console.warn('[KMZ] ⚠ Error subiendo:',name,res.status);
   }catch(e){ console.warn('[KMZ] Error de red al subir:',e.message); }
 }
+
+// ── KMZ: lista de archivos explícitamente eliminados por el usuario ──────────
+// Distingue "servidor reiniciado (disco limpio)" de "usuario eliminó el archivo"
+// Solo los archivos en esta lista se omiten en el fallback de localStorage.
+function _kmzDeleted(parkId){ try{ return new Set(JSON.parse(localStorage.getItem('kmz_del_'+parkId)||'[]')); }catch{ return new Set(); } }
+function _kmzMarkDel(parkId,names){ try{ const s=_kmzDeleted(parkId); names.forEach(n=>s.add(n)); localStorage.setItem('kmz_del_'+parkId,JSON.stringify([...s])); }catch{} }
+function _kmzUnmarkDel(parkId,name){ try{ const s=_kmzDeleted(parkId); s.delete(name); if(s.size) localStorage.setItem('kmz_del_'+parkId,JSON.stringify([...s])); else localStorage.removeItem('kmz_del_'+parkId); }catch{} }
 
 // ── KMZ: guardar en localStorage como respaldo rápido (solo texto KML) ──
 function saveKMZToStorage(){
@@ -384,13 +396,13 @@ function saveKMZToStorage(){
   }catch(e){ console.warn('[KMZ] localStorage lleno:',e.message); }
 }
 
-// ── KMZ: quitar un archivo individual (del mapa + servidor) ──
+// ── KMZ: quitar un archivo individual (del mapa + servidor + lista de eliminados) ──
 async function removeKMZ(filename){
   if(kmzLayers[filename]?.layer) map.removeLayer(kmzLayers[filename].layer);
   delete kmzLayers[filename];
   updateKMZList();
   saveKMZToStorage();
-  // Eliminar del servidor
+  _kmzMarkDel(currentPark,[filename]); // evita que localStorage lo restaure en próximo refresh
   try{
     await fetch(`${BACKEND}/kmz/${currentPark}/${encodeURIComponent(filename)}`,{method:'DELETE'});
     console.log('[KMZ] 🗑 Eliminado del servidor:',filename);
@@ -406,7 +418,7 @@ async function clearAllKMZ(){
   kmzLayers={};
   updateKMZList();
   saveKMZToStorage();
-  // Eliminar también del servidor para que no reaparezcan al actualizar
+  _kmzMarkDel(currentPark,filenames); // evita restauración desde localStorage
   for(const name of filenames){
     try{
       await fetch(`${BACKEND}/kmz/${currentPark}/${encodeURIComponent(name)}`,{method:'DELETE'});
@@ -440,8 +452,8 @@ async function loadKMZFile(input){
       } else {
         kmlText=await file.text();
       }
+      _kmzUnmarkDel(currentPark,file.name); // re-subir limpia el flag de eliminado
       await renderKML(kmlText, file.name, zip, arrayBuffer);
-      // Subir al servidor para persistencia permanente
       await uploadKMZToServer(file.name, arrayBuffer);
     }catch(e){
       console.error('[KMZ] Error cargando',file.name,e.message);
@@ -658,33 +670,30 @@ async function restoreKMZ(){
           }catch(e){ console.warn('[KMZ] Error descargando del servidor:',name,e.message); }
         }
         updateKMZList();
-        // Sincronizar localStorage con el estado real del servidor
-        saveKMZToStorage();
+        saveKMZToStorage(); // sincronizar localStorage con estado real del servidor
         return;
       }
-      // Servidor respondió OK pero lista vacía → limpiar localStorage stale
-      // (evita que archivos eliminados del servidor vuelvan desde caché local)
-      localStorage.removeItem('kmz_files_'+currentPark);
-      localStorage.removeItem('kmz_kml_'+currentPark);
-      localStorage.removeItem('kmz_name_'+currentPark);
-      return;
+      // Servidor OK pero lista vacía → puede ser reinicio del disco (Render free tier)
+      // NO limpiar localStorage aquí: si el servidor reinició, localStorage es el respaldo válido
     }
   }catch(e){ console.warn('[KMZ] Servidor no disponible, usando localStorage:',e.message); }
 
-  // 3. localStorage — fallback offline SOLO si el servidor no estuvo disponible
+  // 3. localStorage — fallback: servidor reiniciado o sin conexión
+  // Omite archivos que el usuario eliminó explícitamente (rastreados en kmz_del_<park>)
   try{
     const filesJson=localStorage.getItem('kmz_files_'+currentPark);
+    const deleted=_kmzDeleted(currentPark);
     if(filesJson){
-      const files=JSON.parse(filesJson);
+      const files=JSON.parse(filesJson).filter(({name})=>!deleted.has(name));
       for(const {name,kml} of files){
         if(kml) await renderKML(kml,name,null,null);
       }
-      updateKMZList();
+      if(files.length) updateKMZList();
       return;
     }
     const kmlText=localStorage.getItem('kmz_kml_'+currentPark);
     const name=localStorage.getItem('kmz_name_'+currentPark)||'parque.kmz';
-    if(kmlText){ await renderKML(kmlText,name,null,null); updateKMZList(); }
+    if(kmlText&&!deleted.has(name)){ await renderKML(kmlText,name,null,null); updateKMZList(); }
   }catch(e){ console.warn('[KMZ] Error localStorage:',e.message); }
 }
 
