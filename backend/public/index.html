@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8"/>
@@ -24,12 +24,14 @@
 
     /* ── TOP BAR ── */
     #topbar{background:var(--card);border-bottom:1px solid var(--border);padding:8px 14px;display:flex;align-items:center;gap:12px;flex-shrink:0;z-index:100}
-    .enel-logo{display:flex;align-items:center;gap:10px;flex-shrink:0}
-    .enel-img{height:38px;width:auto;display:block}
-    .enel-divider{width:1px;height:28px;background:var(--border)}
+    .enel-logo{display:flex;align-items:center;gap:12px;flex-shrink:0}
+    .enel-img{height:34px;width:auto;display:block;background:#fff;border-radius:6px;padding:4px 10px;box-sizing:content-box}
+    .enel-divider{width:1px;height:32px;background:var(--border);opacity:.5}
+    .brand-stack .title{font-weight:800;color:var(--solar);font-size:15px;line-height:1.1;letter-spacing:.3px}
+    .brand-stack .subtitle{font-size:9px;color:var(--muted);letter-spacing:.6px;text-transform:uppercase;margin-top:2px}
     .brand-stack{display:flex;flex-direction:column;justify-content:center}
-    #topbar .title{font-weight:700;color:var(--solar);font-size:14px;line-height:1.2}
-    #topbar .subtitle{font-size:10px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase}
+    #topbar .title{font-weight:800;color:var(--solar);font-size:15px;line-height:1.1;letter-spacing:.3px}
+    #topbar .subtitle{font-size:9px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;margin-top:2px}
     #park-select{margin-left:auto;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;max-width:200px}
     #conn-badge{font-size:11px;font-weight:600;white-space:nowrap}
 
@@ -149,11 +151,11 @@
 <!-- Top Bar -->
 <div id="topbar">
   <div class="enel-logo">
-    <img class="enel-img" src="/enel-logo.png" alt="Enel"/>
+    <img class="enel-img" src="data:image/png;base64,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" alt="Enel"/>
     <div class="enel-divider"></div>
     <div class="brand-stack">
       <div class="title">Aura</div>
-      <div class="subtitle">Maestro de campo</div>
+      <div class="subtitle">Asistencia · Ubicación · Respuesta · Acompañamiento</div>
     </div>
   </div>
 
