@@ -515,39 +515,42 @@ async function renderKML(kmlText, fileName, zip, arrayBuffer){
     return la!==lb ? la-lb : da-db;
   });
 
-  for(const go of selectedGO){
-    const llb=gbt1(go,'LatLonBox'); if(!llb) continue;
+  // Extraer todas las imágenes en paralelo (Promise.all >> loop secuencial con await)
+  const tileResults=await Promise.all(selectedGO.map(async go=>{
+    const llb=gbt1(go,'LatLonBox'); if(!llb) return null;
     const n=parseFloat(txt(llb,'north')), s=parseFloat(txt(llb,'south'));
     const e_=parseFloat(txt(llb,'east')), w=parseFloat(txt(llb,'west'));
-    if(isNaN(n)||isNaN(s)||isNaN(e_)||isNaN(w)) continue;
+    if(isNaN(n)||isNaN(s)||isNaN(e_)||isNaN(w)) return null;
     const href=txt(gbt1(go,'Icon')||go,'href');
     const{lvl,drawOrd}=getTileLevel(go);
     // zIndex: L1→210, L2→220, L3→230... tiles de mayor resolución van encima
     const zIdx=200+(lvl>0?lvl:1)*10+drawOrd;
-    const rect=L.rectangle([[s,w],[n,e_]],{color:'#f59e0b',weight:1,fillOpacity:0.05,dashArray:'4'});
-
-    // Buscar imagen en el ZIP (probar ruta exacta y variantes de carpeta)
+    const bounds=[[s,w],[n,e_]];
     let imgEntry=null;
     if(zip&&href){
       imgEntry=zip.files[href]
         || zip.files[href.replace(/^files\//,'')]
         || Object.values(zip.files).find(f=>f.name.endsWith('/'+href.split('/').pop()));
     }
-
     if(imgEntry){
       try{
         const imgData=await imgEntry.async('blob');
-        const blobUrl=URL.createObjectURL(imgData);
-        layers.push(L.imageOverlay(blobUrl,[[s,w],[n,e_]],{
-          opacity:0.90, interactive:false, crossOrigin:'anonymous', zIndex:zIdx
-        }));
-        goCount++;
+        return{type:'img',blobUrl:URL.createObjectURL(imgData),bounds,zIdx};
       }catch(imgErr){
         console.warn('[KMZ] imagen fallida:',href,imgErr?.message);
-        layers.push(rect); goCount++;
+        return{type:'rect',bounds};
       }
+    }
+    return{type:'rect',bounds};
+  }));
+  for(const t of tileResults){
+    if(!t) continue;
+    if(t.type==='img'){
+      layers.push(L.imageOverlay(t.blobUrl,t.bounds,{opacity:0.90,interactive:false,crossOrigin:'anonymous',zIndex:t.zIdx}));
+      goCount++;
     } else {
-      layers.push(rect); goCount++;
+      layers.push(L.rectangle(t.bounds,{color:'#f59e0b',weight:1,fillOpacity:0.05,dashArray:'4'}));
+      goCount++;
     }
   }
 
@@ -624,7 +627,8 @@ async function restoreKMZ(){
   // 1. Caché en memoria — park switch dentro de la misma sesión
   const cached=kmzCache[currentPark];
   if(cached&&cached.length>0){
-    for(const {name,kmlText,arrayBuffer} of cached){
+    // Procesar en paralelo — la caché ya tiene los ArrayBuffers en memoria
+    await Promise.all(cached.map(async ({name,kmlText,arrayBuffer})=>{
       try{
         if(arrayBuffer){
           const zip=await JSZip.loadAsync(arrayBuffer);
@@ -633,7 +637,7 @@ async function restoreKMZ(){
           await renderKML(kmlText,name,null,null);
         }
       }catch(e){ console.warn('[KMZ] Error caché:',name,e.message); }
-    }
+    }));
     updateKMZList();
     return;
   }
@@ -645,20 +649,22 @@ async function restoreKMZ(){
       const files=await r.json();
       if(files.length>0){
         const statusEl=document.getElementById('kmz-status');
-        statusEl.textContent=`⏳ Restaurando ${files.length} capa(s) del servidor…`;
+        const totalMB=(files.reduce((s,f)=>s+(f.size||0),0)/1048576).toFixed(0);
+        statusEl.textContent=`⏳ Descargando ${files.length} KMZ (${totalMB} MB)… puede demorar unos segundos`;
         statusEl.classList.add('show');
-        for(const {name} of files){
+        // Descargar todos los archivos en paralelo — más rápido que secuencial
+        await Promise.all(files.map(async ({name})=>{
           try{
             const fr=await fetch(`${BACKEND}/kmz/${currentPark}/${encodeURIComponent(name)}`);
-            if(!fr.ok) continue;
+            if(!fr.ok) return;
             const arrayBuffer=await fr.arrayBuffer();
             const zip=await JSZip.loadAsync(arrayBuffer);
             const kmlEntry=Object.values(zip.files).find(f=>f.name.toLowerCase().endsWith('.kml'));
-            if(!kmlEntry) continue;
+            if(!kmlEntry) return;
             const kmlText=await kmlEntry.async('text');
             await renderKML(kmlText,name,zip,arrayBuffer);
           }catch(e){ console.warn('[KMZ] Error descargando del servidor:',name,e.message); }
-        }
+        }));
         updateKMZList();
         saveKMZToStorage(); // sincronizar localStorage con estado real del servidor
         return;
