@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>SolarTrack — Trabajador</title>
+  <title>Aura</title>
   <link rel="manifest" href="manifest-worker.json" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-title" content="ST Worker" />
+  <meta name="apple-mobile-web-app-title" content="Aura" />
   <meta name="theme-color" content="#f59e0b" />
 
   <!-- Leaflet — local si APK, CDN si web -->
@@ -167,8 +167,8 @@
       <line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
       <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
     </svg>
-    <div style="font-size:24px; font-weight:700; color:#f59e0b;">SolarTrack</div>
-    <div style="font-size:13px; color:var(--muted); margin-top:4px;">Aplicación del Trabajador</div>
+    <div style="font-size:24px; font-weight:700; color:#f59e0b;">Aura</div>
+    <div style="font-size:13px; color:var(--muted); margin-top:4px;">Asistencia · Ubicación · Respuesta · Acompañamiento</div>
   </div>
 
   <div style="width:100%; max-width:340px;">
@@ -177,26 +177,14 @@
 
     <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:5px;">Parque solar</label>
     <select class="login-input" id="login-park" style="cursor:pointer;">
-      <option value="P1">Parque Solar 1 — Sevilla Norte</option>
-      <option value="P2">Parque Solar 2 — Sevilla Sur</option>
-      <option value="P3">Parque Solar 3 — Cádiz Este</option>
-      <option value="P4">Parque Solar 4 — Huelva</option>
-      <option value="P5">Parque Solar 5 — Córdoba</option>
-      <option value="P6">Parque Solar 6 — Málaga</option>
-      <option value="P7">Parque Solar 7 — Almería</option>
+      <option value="P1">☀️ La Loma</option>
+      <option value="P2">☀️ El Paso</option>
+      <option value="P3">☀️ Fundación</option>
+      <option value="P4">☀️ Guayepo I &amp; II</option>
+      <option value="P5">☀️ Guayepo III</option>
+      <option value="P6">☀️ Atlántico</option>
+      <option value="P7">☀️ Valledupar</option>
     </select>
-
-    <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:5px;">Zona asignada</label>
-    <select class="login-input" id="login-zone" style="cursor:pointer;">
-      <option value="Z1">Sector A — Hileras 1-20</option>
-      <option value="Z2">Sector B — Hileras 21-40</option>
-      <option value="Z3">Sector C — Hileras 41-60</option>
-      <option value="Z4">Almacén / Inversor</option>
-      <option value="Z5">Zona perimetral</option>
-    </select>
-
-    <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:5px;">IP del Maestro (WiFi local)</label>
-    <input class="login-input" id="login-master-ip" type="text" placeholder="192.168.1.100" value="192.168.1.100" />
 
     <button onclick="doLogin()" style="width:100%; padding:14px; border-radius:12px; background:var(--solar); color:#000; font-weight:700; font-size:16px; border:none; cursor:pointer; margin-top:6px;">
       Entrar al turno
@@ -458,31 +446,26 @@ function loadProfile() {
 // =====================================================
 // LOGIN
 // =====================================================
+const BACKEND = 'https://solartrack-server.onrender.com';
+
 function doLogin() {
   const name = document.getElementById('login-name').value.trim();
   const parkId = document.getElementById('login-park').value;
-  const zoneId = document.getElementById('login-zone').value;
-  const masterIp = document.getElementById('login-master-ip').value.trim();
 
   if (!name) { showToast('Ingresa tu nombre'); return; }
 
-  const zoneNames = {
-    Z1:'Sector A — Hileras 1-20', Z2:'Sector B — Hileras 21-40',
-    Z3:'Sector C — Hileras 41-60', Z4:'Almacén / Inversor', Z5:'Zona perimetral',
-  };
   const parkNames = {
-    P1:'Parque Solar 1', P2:'Parque Solar 2', P3:'Parque Solar 3',
-    P4:'Parque Solar 4', P5:'Parque Solar 5', P6:'Parque Solar 6', P7:'Parque Solar 7',
+    P1:'La Loma', P2:'El Paso', P3:'Fundación',
+    P4:'Guayepo I & II', P5:'Guayepo III', P6:'Atlántico', P7:'Valledupar',
   };
 
   workerProfile = {
-    id: 'W_' + Date.now(),
-    name, parkId, zoneId,
-    zoneName: zoneNames[zoneId],
+    id: localStorage.getItem('aura_worker_id') || ('W_' + Date.now()),
+    name, parkId,
     parkName: parkNames[parkId],
-    masterIp,
     loginTime: new Date().toISOString(),
   };
+  localStorage.setItem('aura_worker_id', workerProfile.id);
 
   saveProfile(workerProfile);
   startApp();
@@ -497,7 +480,7 @@ function startApp() {
   const initials = workerProfile.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   document.getElementById('worker-avatar').textContent = initials;
   document.getElementById('worker-name-display').textContent = workerProfile.name;
-  document.getElementById('worker-zone-display').textContent = `${workerProfile.parkName} · ${workerProfile.zoneName}`;
+  document.getElementById('worker-zone-display').textContent = workerProfile.parkName;
 
   initMap();
   checkConnectivity();
@@ -658,35 +641,32 @@ function onGpsError(err) {
 async function sendToMaster(record) {
   if (!record) return;
 
-  // Try master IP on local WiFi first
-  const masterUrl = `http://${workerProfile.masterIp}:8080/location`;
-
+  // Try cloud backend (Render) first
   try {
-    const res = await fetch(masterUrl, {
+    const res = await fetch(`${BACKEND}/location`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(record),
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(8000),
     });
 
     if (res.ok) {
       isMasterReachable = true;
       if (record.id) markLocationsSynced([record.id]);
-      await syncPendingToMaster(); // drain the queue
+      await syncPendingToMaster();
       return;
     }
   } catch (_) {
     isMasterReachable = false;
   }
 
-  // If master unreachable, try cloud (Firebase-compatible endpoint)
-  // In production: replace with your Firebase/backend URL
+  // Fallback: cloud backend (Render)
   try {
-    await fetch(`https://your-firebase-project.firebaseio.com/locations/${workerProfile.parkId}.json`, {
+    await fetch(`${BACKEND}/location`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(record),
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(8000),
     });
     if (record.id) markLocationsSynced([record.id]);
   } catch (_) {
@@ -701,7 +681,7 @@ async function syncPendingToMaster() {
 
   showSyncBar(true);
 
-  const masterUrl = `http://${workerProfile.masterIp}:8080/batch-locations`;
+  const masterUrl = `${BACKEND}/batch-locations`;
   try {
     const res = await fetch(masterUrl, {
       method: 'POST',
@@ -754,7 +734,7 @@ function startConnectivityMonitor() {
   setInterval(async () => {
     if (!workerProfile) return;
     try {
-      await fetch(`http://${workerProfile.masterIp}:8080/ping`, { signal: AbortSignal.timeout(2000) });
+      await fetch(`${BACKEND}/ping`, { signal: AbortSignal.timeout(4000) });
       if (!isMasterReachable) {
         isMasterReachable = true;
         syncPendingToMaster();
@@ -975,9 +955,8 @@ openDB().then(async () => {
   const saved = await loadProfile();
   if (saved) {
     workerProfile = saved;
-    // Pre-fill login form
     document.getElementById('login-name').value = saved.name || '';
-    document.getElementById('login-master-ip').value = saved.masterIp || '';
+    if (saved.parkId) document.getElementById('login-park').value = saved.parkId;
   }
 });
 </script>
